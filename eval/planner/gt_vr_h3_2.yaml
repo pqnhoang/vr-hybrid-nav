@@ -1,0 +1,253 @@
+# Planner open-loop GT for vr_h3_2_calib_1 (office walk). Object positions are node centroids from
+# runs/memory_vr_h3_2 (annotated by eye from best-view crops, 2026-10-07); several nodes may show
+# the same physical object. Generated with eval/planner/annotate_gt.py, tasks added by hand.
+objects:
+- gt_id: trash_can_0
+  category: trash can
+  position:
+  - 6.175
+  - -0.875
+  - -0.375
+  source_node: 0
+  room: null
+- gt_id: trash_can_198
+  category: trash can
+  position:
+  - 19.425
+  - -10.075
+  - -0.475
+  source_node: 198
+  room: null
+- gt_id: sofa_4
+  category: sofa
+  position:
+  - 8.275
+  - 3.225
+  - -0.425
+  source_node: 4
+  room: null
+- gt_id: sofa_7
+  category: sofa
+  position:
+  - 8.025
+  - 3.825
+  - -0.425
+  source_node: 7
+  room: null
+- gt_id: sofa_179
+  category: sofa
+  position:
+  - 21.625
+  - -6.125
+  - -0.425
+  source_node: 179
+  room: null
+- gt_id: sofa_188
+  category: sofa
+  position:
+  - 21.575
+  - -6.625
+  - -0.425
+  source_node: 188
+  room: null
+- gt_id: sofa_226
+  category: sofa
+  position:
+  - 21.575
+  - -7.175
+  - -0.475
+  source_node: 226
+  room: null
+- gt_id: sofa_436
+  category: sofa
+  position:
+  - 10.975
+  - 8.075
+  - -0.075
+  source_node: 436
+  room: null
+- gt_id: armchair_32
+  category: armchair
+  position:
+  - 9.175
+  - 4.975
+  - -0.475
+  source_node: 32
+  room: null
+- gt_id: armchair_197
+  category: armchair
+  position:
+  - 19.425
+  - -7.175
+  - -0.375
+  source_node: 197
+  room: null
+- gt_id: armchair_215
+  category: armchair
+  position:
+  - 19.3
+  - -5.775
+  - -0.375
+  source_node: 215
+  room: null
+- gt_id: armchair_8
+  category: armchair
+  position:
+  - 10.325
+  - 2.725
+  - -0.325
+  source_node: 8
+  room: null
+- gt_id: printer_224
+  category: printer
+  position:
+  - 21.375
+  - -13.425
+  - -0.275
+  source_node: 224
+  room: null
+- gt_id: printer_234
+  category: printer
+  position:
+  - 21.175
+  - -13.675
+  - 0.225
+  source_node: 234
+  room: null
+- gt_id: tv_174
+  category: tv
+  position:
+  - 23.325
+  - -8.975
+  - 0.275
+  source_node: 174
+  room: null
+- gt_id: tv_416
+  category: tv
+  position:
+  - 7.475
+  - 12.925
+  - 0.275
+  source_node: 416
+  room: null
+- gt_id: pool_table_31
+  category: pool table
+  position:
+  - 8.625
+  - 8.675
+  - 0.025
+  source_node: 31
+  room: null
+- gt_id: pool_table_430
+  category: pool table
+  position:
+  - 8.775
+  - 8.725
+  - 0.025
+  source_node: 430
+  room: null
+- gt_id: pool_table_439
+  category: pool table
+  position:
+  - 8.525
+  - 8.575
+  - 0.025
+  source_node: 439
+  room: null
+- gt_id: pool_table_424
+  category: pool table
+  position:
+  - 8.625
+  - 10.975
+  - -0.175
+  source_node: 424
+  room: null
+- gt_id: pool_table_434
+  category: pool table
+  position:
+  - 9.375
+  - 9.525
+  - -0.075
+  source_node: 434
+  room: null
+tasks:
+- id: t01
+  category: implicit_multi
+  start_t: 0.0
+  instruction: I just finished my coffee and I'm tired. Help me get rid of the empty cup, then find somewhere comfortable
+    to relax.
+  gt_targets:
+    trash can:
+    - trash_can_0
+    - trash_can_198
+    comfortable seat:
+    - sofa_4
+    - sofa_7
+    - sofa_179
+    - sofa_188
+    - sofa_226
+    - sofa_436
+    - armchair_32
+    - armchair_197
+    - armchair_215
+    - armchair_8
+  aliases:
+    trash can:
+    - garbage can
+    - bin
+    - waste bin
+    - trash bin
+    comfortable seat:
+    - sofa
+    - armchair
+    - couch
+    - lounge chair
+    - seating
+    - comfortable seating
+- id: t02
+  category: implicit
+  start_t: 0.0
+  instruction: I need a paper copy of my boarding pass before I leave for the airport.
+  gt_targets:
+    printer:
+    - printer_224
+    - printer_234
+  aliases:
+    printer:
+    - copier
+    - printing machine
+- id: t03
+  category: implicit
+  start_t: 0.0
+  instruction: Where can I watch the football match tonight?
+  gt_targets:
+    tv:
+    - tv_174
+    - tv_416
+  aliases:
+    tv:
+    - television
+    - tv screen
+    - television set
+- id: t04
+  category: attribute
+  start_t: 0.0
+  instruction: Let's play a game of billiards.
+  gt_targets:
+    pool table:
+    - pool_table_31
+    - pool_table_430
+    - pool_table_439
+    - pool_table_424
+    - pool_table_434
+  aliases:
+    pool table:
+    - billiard table
+    - billiards table
+- id: t05
+  category: absent_target
+  start_t: 0.0
+  instruction: It is raining outside, find me an umbrella.
+  gt_targets:
+    umbrella: []
+  aliases: {}

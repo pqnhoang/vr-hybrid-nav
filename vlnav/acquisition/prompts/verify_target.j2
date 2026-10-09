@@ -1,0 +1,20 @@
+{#- Rendered in three parts so candidate images can be interleaved (acquisition spec §8.3). -#}
+{% macro header(instruction, target, n, full_frame) -%}
+You are the perception module of a mobile robot. The robot must find an object that satisfies the user's instruction.
+
+Instruction (verbatim): "{{ instruction }}"
+Target to find now: "{{ target }}"
+
+Below are {{ n }} candidate objects from the robot's memory. For each candidate you get a close-up crop of its best view{% if full_frame %}, the full camera frame with the object boxed in red{% endif %}, and context: the detector label, the detection confidence, the room and nearby objects.
+
+Decide which candidate best matches the intended meaning of the instruction, not just the word "{{ target }}". Use visual attributes (type, material, color, shape, state) and spatial context (room, nearby objects). The detector labels can be wrong; trust the images.
+{%- endmacro %}
+
+{% macro candidate(letter, text) -%}
+Candidate {{ letter }}: {{ text }}
+{%- endmacro %}
+
+{% macro footer(letters) -%}
+If no candidate is a convincing match for the instruction, answer "none".
+Return only JSON: {"reasoning": "<one or two sentences>", "choice": "<one of {{ letters | join(', ') }} or none>", "confidence": <number between 0 and 1>}
+{%- endmacro %}

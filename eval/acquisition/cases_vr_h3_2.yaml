@@ -1,0 +1,33 @@
+# Acquisition eval cases on the vr_h3_2_calib_1 office memory (runs/memory_vr_h3_2, 201 objects).
+# Ground truth annotated by eye from best-view crops (2026-10-07). Several physical objects have
+# duplicate nodes: every node showing the right object is listed.
+- instruction: "I'm exhausted. Find me a sofa where I can lie down for a bit."
+  target: sofa
+  gt_node_ids: [4, 7, 179, 188, 226, 436]
+- instruction: "Find a comfortable armchair where I can sit and read."
+  target: armchair
+  gt_node_ids: [32, 197, 215, 8]
+- instruction: "I need to throw away this paper cup."
+  target: trash can
+  gt_node_ids: [0, 198]
+  ambiguous_node_ids: [106, 218, 290]
+- instruction: "Print my boarding pass, please."
+  target: printer
+  gt_node_ids: [224, 234]
+  ambiguous_node_ids: [213, 217]
+- instruction: "Where can I watch the football match?"
+  target: tv
+  gt_node_ids: [174, 416]
+  ambiguous_node_ids: [305]
+- instruction: "Let's play a game of billiards."             # only labelled desk / sofa in memory
+  target: pool table
+  gt_node_ids: [31, 430, 439, 424, 434]
+- instruction: "Find a round table for a small team meeting."  # labelled desk in memory
+  target: round table
+  gt_node_ids: [182, 242]
+- instruction: "Bring my bicycle to the entrance."             # absent
+  target: bicycle
+  gt_node_ids: []
+- instruction: "It is raining outside, find me an umbrella."   # absent
+  target: umbrella
+  gt_node_ids: []

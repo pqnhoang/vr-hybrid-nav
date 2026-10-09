@@ -1,0 +1,16 @@
+You are helping a mobile robot build a semantic map of a building.
+Infer the type of one room from the objects an open-vocabulary detector found inside it.
+
+Room area: {{ "%.1f"|format(area_m2) }} m2
+Objects in the room (label: count, mean detection confidence):
+{% for label, count, score in objects %}- {{ label }}: {{ count }}, {{ "%.2f"|format(score) }}
+{% endfor %}
+{% if adjacent_labels %}Adjacent rooms were labeled: {{ adjacent_labels|join(", ") }}.
+Adjacent labels are weak context and may be wrong. Decide from this room's objects first; the room may
+have the same type as a neighbor (e.g. several offices side by side) or a different one.
+{% endif %}
+Detector labels can be wrong; decide from the overall set of objects, not from a single one.
+Allowed room labels: {{ allowed|join(", ") }}.
+Answer "other" if none of them fits.
+
+Return only JSON: {"label": "<one allowed label>", "confidence": <number between 0 and 1>}

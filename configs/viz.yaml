@@ -1,0 +1,13 @@
+# Live / recorded visualization with Rerun (vlnav/viz/rerun_logger.py).
+image_width: 640                 # camera image is downscaled + JPEG-encoded to keep .rrd files small
+jpeg_quality: 80
+mask_alpha: 0.45
+lidar_points_per_frame: 6000
+map_chunk_every_s: 5.0           # accumulated LiDAR map is logged in chunks (grows over time)
+map_chunk_points: 15000
+map_height_band: [-0.3, 2.0]     # map points kept relative to the sensor height (drops ground)
+node_points_every_frames: 10     # object point clouds (all nodes) every N frames
+node_points_max: 300             # per node
+project_nodes_max_range_m: 12.0  # memory objects drawn into the camera image up to this range
+map_every_frames: 4             # occupancy grid + rooms image (2D tab) every N frames
+map_max_px: 1024                # long side of that image

@@ -1,0 +1,6 @@
+# Model weights (SYSTEM.md §11). The repo folder is `checkpoint/` (not git-tracked).
+checkpoints_root: checkpoint
+detector:
+  yolo_world: checkpoint/detector/yolov8x-worldv2.pt       # paper: YOLO-World
+  fastsam: checkpoint/segmenter/FastSAM-x.pt               # paper: FastSAM
+  clip_text: checkpoint/text_encoder/clip/ViT-B-32.pt      # YOLO-World text encoder (~/.cache/clip)

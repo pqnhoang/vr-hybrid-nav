@@ -1,0 +1,5 @@
+# Navigation (SYSTEM.md §4.4): GridAStar on the shared occupancy grid (mapping/).
+robot_radius_m: 0.3          # occupied cells inflated by this (humanoid / small base)
+unknown_cost: 3.0            # [DESIGN] unknown cells traversable at this cost per meter (free = 1), needed for frontiers
+goal_snap_radius_m: 0.5      # goal snapped to the nearest free, non-inflated cell within this radius
+start_snap_radius_m: 0.6     # [DESIGN] robot cell inside the inflation (tight spots, pose noise) -> nearest traversable cell

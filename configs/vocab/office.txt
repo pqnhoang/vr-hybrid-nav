@@ -1,0 +1,31 @@
+# Generic memory vocabulary for indoor office runs (vr_h3_2 bags). People are dynamic (perception.dynamic).
+chair
+office chair
+bar stool
+sofa
+armchair
+table
+desk
+monitor
+laptop
+keyboard
+potted plant
+pool table
+printer
+whiteboard
+tv
+trash can
+cabinet
+shelf
+lamp
+door
+window
+refrigerator
+water dispenser
+coffee machine
+backpack
+bottle
+cup
+box
+fire extinguisher
+poster

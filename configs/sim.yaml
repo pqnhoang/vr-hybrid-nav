@@ -1,0 +1,5 @@
+# Bag event simulator (planner spec §6), used in run mode A instead of exploration events.
+bag_event_sim:
+  mode: trajectory                 # trajectory | oracle
+  reach_radius_m: 1.0
+  oracle_delay_s: 5.0

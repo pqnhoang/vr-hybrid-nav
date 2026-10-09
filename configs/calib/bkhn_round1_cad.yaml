@@ -1,0 +1,4 @@
+# livox_frame -> camera_link from the robot CAD (user's TF investigation, 2026-10-07).
+# Translation from SolidWorks point deltas; rotation NOT measured (assumed identity).
+# camera_link -> camera_color_optical_frame is taken from the bag /tf (realsense-ros).
+T_lidar_camlink: {xyz: [0.148119, 0.0, -0.056147], xyzw: [0.0, 0.0, 0.0, 1.0]}

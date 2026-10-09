@@ -1,0 +1,13 @@
+# One VLM client shared by the planner and target acquisition (planner spec §3: planner/vlm.py).
+backend: local                   # local (in-process transformers) | openai (vLLM or any OpenAI-compatible server) | mock
+model: checkpoint/vlm/Qwen3-VL-8B-Instruct   # Instruct, not Thinking (AUDIT 22); served name for `openai`
+base_url: http://localhost:8000/v1           # backend: openai
+structured_output: response_format           # response_format (OpenAI json_schema) | guided_json (old vLLM) | none (AUDIT 23)
+temperature: 0.0
+max_tokens: 1024
+cache_dir: null                  # response cache by prompt hash for reproducible offline evaluation (AUDIT 27)
+local:                           # backend: local
+  devices: [1]                   # GPU ids; [0, 1] splits the model over both 4090s (accelerate device_map)
+  max_memory_gb: 22              # per GPU when splitting
+  dtype: bfloat16
+  attn_implementation: sdpa

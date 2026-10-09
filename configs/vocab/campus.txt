@@ -1,0 +1,30 @@
+# Generic memory vocabulary for the bkhn_round1 campus walk (outdoor campus + building stairwell).
+# People are left out on purpose: dynamic objects are out of scope for the memory.
+tree
+potted plant
+bench
+chair
+table
+trash can
+motorbike
+car
+bicycle
+street lamp
+traffic sign
+signboard
+fire extinguisher
+door
+window
+stairs
+railing
+pillar
+fence
+umbrella
+backpack
+bottle
+sofa
+desk
+monitor
+whiteboard
+vending machine
+elevator

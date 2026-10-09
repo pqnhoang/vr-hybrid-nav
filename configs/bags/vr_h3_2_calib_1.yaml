@@ -1,0 +1,29 @@
+# BagSource config for sample-data/vr_h3_2_calib_lidar_rgb_20261007_093649_calib_1 (sqlite3 .db3).
+# Humanoid vr_h3_2: Livox MID-360 on the head (upside down), ZED X on the waist (pitched ~29 deg
+# down), indoor office walk (98.6 s). No depth topic: objects are lifted from projected LiDAR.
+bag_dir: sample-data/vr_h3_2_calib_lidar_rgb_20261007_093649_calib_1
+typestore: ROS2_HUMBLE
+poses:
+  kind: tf                                  # robot TF: base_link -> odom_lidar (LiDAR odometry)
+  map_frame: odom_lidar                     # gravity aligned (base z within 0.02-0.20 m over 22 m)
+  base_frame: base_link
+  tf_topic: /tf
+  static_tf_topic: /tf_static
+  extra_static_tf:                          # optical frame of the image is not in the TF tree
+    - parent: waist_front_zed_onboard_left_camera_frame
+      child: waist_front_zed_onboard_left_camera_frame_optical
+      xyz: [0.0, 0.0, 0.0]
+      rpy_deg: [-90.0, 0.0, -90.0]          # ROS body (x fwd) -> optical (z fwd), standard
+camera_id: zed_waist_front
+color_topic: /camera/waist_front_zed_onboard/left/color/rect/image
+depth_topic: null
+camera_info_topic: /camera/waist_front_zed_onboard/left/color/rect/image/camera_info
+lidar_topic: /livox/lidar
+imu_topic: null
+frame_rate_hz: 2.0
+max_pose_gap_s: 0.5
+lidar_window_s: 1.0                         # sparse MID-360: longer window for lifting
+depth_pair_tol_s: 0.01
+pair_wait_s: 0.3                            # let LiDAR scans up to the image stamp arrive
+start_offset_s: null
+end_offset_s: null

@@ -1,0 +1,26 @@
+# Perception (SYSTEM.md §4.2). YOLO-World scores are low (AUDIT pitfall 12): tune `conf` per setup.
+detector:
+  device: cuda:0
+  yolo_imgsz: 1280
+  conf: 0.1
+  iou: 0.5
+  max_det: 50
+  fastsam_imgsz: 1024
+  fastsam_conf: 0.4
+  fastsam_iou: 0.9
+  mask_min_iou: 0.3
+  cache_dir: null
+vocabulary:
+  generic_vocab_file: configs/vocab/campus.txt
+dynamic:                      # people and what they carry break the static-world memory
+  labels: [person]
+  max_bbox_overlap: 0.5
+lifting:
+  mask_erode_px: 4
+  min_depth_m: 0.3
+  max_depth_m: 6.0            # D455 depth gets noisy beyond ~6 m (worse in sunlight)
+  mad_k: 2.5
+  voxel_m: 0.05
+  min_points: 10
+  max_obs_range_m: 8.0
+  max_mask_pixels: 20000

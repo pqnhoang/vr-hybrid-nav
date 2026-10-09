@@ -1,0 +1,22 @@
+# BagSource config (SYSTEM.md §4.1) for sample-data/bkhn_round1:
+# Livox MID-360 + RealSense D455, campus walk (mostly outdoors, indoor stairwell at the end).
+bag_dir: sample-data/bkhn_round1          # decompressed .mcap files
+typestore: ROS2_HUMBLE
+poses:
+  kind: trajectory                        # external LiDAR odometry, base = LiDAR frame
+  trajectory: sample-data/bkhn_round1/odometry_bkhn_round1_point2plane.txt
+  trajectory_format: matrix_blocks        # stamp + 4x4 T_odom_livox; stamps = /livox/lidar headers
+  calibration: configs/calib/bkhn_round1.yaml   # written by scripts/calibrate_lidar_camera.py
+camera_id: d455
+color_topic: /camera/camera/color/image_raw/compressed
+depth_topic: /camera/camera/aligned_depth_to_color/image_raw/compressedDepth
+camera_info_topic: /camera/camera/color/camera_info
+lidar_topic: /livox/lidar
+imu_topic: /livox/imu
+frame_rate_hz: 2.0
+max_pose_gap_s: 0.5                       # odometry is a keyframe log with gaps up to 7.4 s
+lidar_window_s: 0.5
+depth_pair_tol_s: 0.01                    # aligned depth has the color stamp
+pair_wait_s: 1.0
+start_offset_s: null
+end_offset_s: null

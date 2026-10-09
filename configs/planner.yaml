@@ -1,0 +1,17 @@
+# NeSy task planner (plans/TASK_nesy_task_planner.md §7).
+blocking: false                    # true: VLM calls block (deterministic offline replay)
+max_graph_tokens: 3000             # serialized scene graph budget (~4 chars / token)
+chars_per_token: 4
+relevant_sim_threshold: 0.88       # object label counts as relevant to a target (same encoder as acquisition)
+planning_images: 4                 # best-view crops attached to decompose/replan (0 = text-only ablation)
+planning_image_px: 384
+n_context_images: 0
+check_period_s: 2.0
+explore_candidate_score: 0.35
+explore_timeout_s: 180
+goto_timeout_s: 120
+task_timeout_s: 900
+max_attempts_per_target: 3
+vlm_timeout_s: 120
+decision_log: logs/decisions.jsonl
+debug_dumps: true                  # <log dir>/planner_debug/NNN_<kind>/: prompt, images, replies, plan, memory

@@ -1,0 +1,33 @@
+# Target acquisition (plans/TASK_target_acquisition.md §10).
+symbolic:
+  k: 3
+  rank_strategy: confidence            # confidence (paper) | confidence_x_similarity
+  min_det_score: 0.15
+  label_sim_threshold: 0.88            # CLIP ViT-B/32: synonyms 0.88-0.99, other objects 0.78-0.91
+  label_rel_margin: 0.06               # + keep only labels within this of the best label (null = off)
+  text_encoder: clip_vitb32            # clip_vitb32 (openai `clip` package) | hf (transformers CLIP / SigLIP)
+  text_encoder_path: checkpoint/text_encoder/clip/ViT-B-32.pt
+  text_template: "a photo of a {}"
+  device: cpu
+  synonyms:
+    rain jacket: [raincoat, jacket, coat]
+    couch: [sofa]
+    sofa: [couch]
+    tv: [television, monitor]
+context:
+  crop_margin: 0.25
+  crop_max_px: 512
+  include_full_frame: true
+  frame_max_px: 768
+  bbox_color: [255, 0, 0]
+  bbox_thickness: 3
+  neighbor_radius_m: 1.5
+  neighbor_same_room: false
+  max_neighbors: 6
+verifier:
+  timeout_s: 60
+  min_vlm_confidence: 0.5
+acquirer:
+  max_rounds: 2
+logging:
+  debug_jsonl: logs/acquisition_debug.jsonl
