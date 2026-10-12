@@ -355,7 +355,7 @@ class PlannerCore:
     def _apply(self, out: _Outcome) -> None:
         s = self._state
         if out.task_id != s.task_id or s.fsm not in ("DECOMPOSING", "REPLANNING"):
-            self._log("stale_result", kind=out.kind, result_task=out.task_id)
+            self._log("stale_result", result_kind=out.kind, result_task=out.task_id)
             return
         s.targets = out.targets
         for name, score in out.reject_floor.items():

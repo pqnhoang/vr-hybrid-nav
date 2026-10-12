@@ -24,7 +24,7 @@ from vlnav.exploration.config import ExplorationConfig
 from vlnav.exploration.curiosity import UnknownRatioCache, s_dist, s_unknown
 from vlnav.exploration.frontiers import FrontierMap, Wedge
 from vlnav.exploration.goal_selector import Candidate, Choice, GoalSelector
-from vlnav.exploration.instances import InstancePool
+from vlnav.exploration.instances import InstancePool, approach_cells
 from vlnav.exploration.scoring import FrontierScore, s_nesy
 from vlnav.exploration.vl_score import Mixture, assign, mixture, reference_pose, s_vl
 from vlnav.mapping.occupancy import OCCUPIED, OccupancyGrid2D, UpdateInfo
@@ -59,6 +59,8 @@ class ExplorationCore:
         self.selector = GoalSelector(cfg.selection, planner)
         self.unknown = UnknownRatioCache(cfg.curiosity.unknown_bfs_radius_m, self.frontiers.structure)
         self.subtask: Subtask | None = None
+        self.goto_object_xy: tuple[float, float] | None = None
+        self.goto_approach_required = False
         self.camera_yaw_offsets: dict[str, float] = {}
         self._wedges: list[Wedge] = []
         self._mix: Mixture | None = None
@@ -70,8 +72,11 @@ class ExplorationCore:
         self._ms = {"on_frame": 0.0, "step": 0.0}
 
     # --------------------------------------------------------------------------- subtask
-    def set_subtask(self, st: Subtask) -> None:
+    def set_subtask(self, st: Subtask, object_xy: tuple[float, float] | None = None,
+                    *, require_object_approach: bool = False) -> None:
         self.subtask = st
+        self.goto_object_xy = object_xy if st.type == "goto" else None
+        self.goto_approach_required = (require_object_approach or object_xy is not None) and st.type == "goto"
         self.instances.clear()
         self.selector.reset()
         if st.type == "explore" and not self.cfg.vl.rescore_on_new_subtask:
@@ -196,16 +201,51 @@ class ExplorationCore:
             out = ExplorationOutput(goal=None, goal_kind="hold", goal_id=None, path=None, events=[])
         elif st.type == "goto":
             gp = st.goal_pose
-            kind, path, ev = self.selector.goto(self.grid, robot_xy, yaw, t, gp.position[:2], gp.yaw())
-            if ev is not None:
-                events.append(self._event(ev, t, goal=list(gp.position[:2])))
-            out = ExplorationOutput(goal=gp if kind == "goto" else None, goal_kind=kind,
-                                    goal_id=st.node_id, path=path, events=events)
+            if self.goto_approach_required:
+                approach = self._goto_approach(robot_xy) if self.goto_object_xy is not None else None
+                if approach is None:
+                    reason = "no object position" if self.goto_object_xy is None else "no reachable approach cell"
+                    self._notes.append(f"{reason} for object #{st.node_id}")
+                    gp = None
+                else:
+                    face = math.atan2(self.goto_object_xy[1] - approach[1],
+                                      self.goto_object_xy[0] - approach[0])
+                    gp = _pose(approach, z, face, t)
+            if gp is None:
+                out = ExplorationOutput(goal=None, goal_kind="hold", goal_id=st.node_id, path=None, events=[])
+            else:
+                kind, path, ev = self.selector.goto(self.grid, robot_xy, yaw, t, gp.position[:2], gp.yaw())
+                if ev is not None:
+                    events.append(self._event(ev, t, goal=list(gp.position[:2])))
+                out = ExplorationOutput(goal=gp if kind == "goto" else None, goal_kind=kind,
+                                        goal_id=st.node_id, path=path, events=events)
         else:
             out = self._explore_step(robot_xy, z, t, st)
         self._t_step, self._out = t, out
         self._ms["step"] = 1e3 * (time.perf_counter() - t0)
         return out
+
+    def _goto_approach(self, robot_xy: tuple[float, float]) -> tuple[float, float] | None:
+        """Nearest reachable free standoff cell around a verified object."""
+        target = self.goto_object_xy
+        blocked = self.grid.inflated(self.robot_radius_m)
+        cfg = self.cfg.instance
+        cells = approach_cells(self.grid, blocked, target,
+                               cfg.inst_standoff_min_m, cfg.inst_standoff_max_m)
+        if not len(cells):
+            return None
+        reach = getattr(self.planner, "reach_costs", None)
+        if reach is not None:
+            costs = reach(self.grid, robot_xy, cells)
+            if not np.isfinite(costs).any():
+                return None
+            i = int(np.argmin(costs))
+            return float(cells[i, 0]), float(cells[i, 1])
+        order = np.argsort(np.linalg.norm(cells - np.asarray(robot_xy), axis=1))
+        for i in order:
+            if self.planner.plan(self.grid, robot_xy, cells[i]) is not None:
+                return float(cells[i, 0]), float(cells[i, 1])
+        return None
 
     def _explore_step(self, robot_xy, z: float, t: float, st: Subtask) -> ExplorationOutput:
         cfg, sel = self.cfg, self.cfg.selection

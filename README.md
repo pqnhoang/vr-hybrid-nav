@@ -4,7 +4,8 @@ Cài đặt lại hệ thống **VL-Nav** (arXiv:2502.00931): một **NeSy task 
 thành các subtask `explore` / `goto`, tra bộ nhớ, xác minh mục tiêu bằng ảnh) chạy trên một **unified
 memory** (scene graph gồm object node và room node, kèm ảnh best-view), cùng một **NeSy exploration**
 (frontier + instance point, chấm điểm theo Eq. 1–8 của paper). Hiện tại hệ thống chạy offline trên
-ROS 2 bag (run mode A), không cần cài ROS.
+ROS 2 bag (run mode A), không cần cài ROS. Có thêm **ROS 2 node** nhận camera + LiDAR + TF,
+publish goal, occupancy map và marker cho RViz: xem [hướng dẫn ROS 2](docs/ros2.md).
 
 Spec nằm trong `plans/`. `plans/SYSTEM.md` là nguồn chuẩn; mọi lựa chọn không có trong paper được ghi
 trong `docs/design_choices.md`.
@@ -21,8 +22,9 @@ trong `docs/design_choices.md`.
 | `vlnav/acquisition` | khớp nhãn bằng CLIP, chọn top-k, VLM xác minh bằng best-view | xong (A1–A6) |
 | `vlnav/planner` | FSM, decompose / replan bằng Qwen3-VL, validation, decision log | xong (P4–P7) |
 | `vlnav/exploration` | frontier, VL score, instance point, curiosity, chọn goal, debug view | xong E1–E4 + bag shadow mode; thiếu Habitat (E5–E6) |
-| `vlnav/runtime` | vòng lặp full system mode A (bag) | xong (S5) |
-| — | mode B (Habitat), ROS 2 node + robot (mode C) | chưa làm (S6, S7) |
+| `vlnav/runtime` | vòng lặp full system bag và live ROS | xong |
+| `ros2/vlnav_ros` | live camera + LiDAR + TF → goal, occupancy map, RViz | có node; chưa có motion controller |
+| — | mode B (Habitat), điều khiển chuyển động robot | chưa làm |
 
 ## Cấu trúc thư mục
 
@@ -30,6 +32,7 @@ trong `docs/design_choices.md`.
 vlnav/            code (io, perception, mapping, navigation, memory, acquisition, planner, exploration, runtime, sim, viz)
 configs/          <package>.yaml = mặc định; bags/ = cấu hình từng bag; runs/ = override cho từng lần chạy; vocab/; calib/
 scripts/          chạy trên bag (run_*_bag.py), xem log (inspect_*.py), export bản đồ, kiểm tra extrinsic
+ros2/vlnav_ros/   ROS 2 node, launch file và cấu hình RViz
 eval/             đánh giá acquisition và planner (open-loop)
 tests/            unit test (không cần GPU / mạng)
 docs/             running.md, visualization.md, design_choices.md

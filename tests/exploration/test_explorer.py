@@ -115,6 +115,40 @@ def test_goto_reached_and_nav_failed_once():
     assert kinds == [[], [], ["nav_failed"], [], []]
 
 
+def test_live_goto_uses_reachable_standoff_in_front_of_robot():
+    grid = OccupancyGrid2D.from_array(np.full((100, 100), FREE, np.int8), 0.1, (0.0, 0.0))
+    core = core_for(grid)
+    core.set_subtask(goto(5, 1.0, 5.0), object_xy=(7.0, 5.0), require_object_approach=True)
+    out = tick(core, 3.0, 5.0, 0.0)
+    assert out.goal_kind == "goto" and out.goal_id == 7
+    assert out.goal.position[0] > 3.0  # old best-view pose is behind the robot
+    assert 0.6 <= math.dist(out.goal.position[:2], (7.0, 5.0)) <= 1.2
+    assert math.isclose(out.goal.yaw(), math.atan2(5.0 - out.goal.position[1],
+                                                  7.0 - out.goal.position[0]), abs_tol=1e-6)
+    assert out.path and np.allclose(out.path[-1], out.goal.position[:2])
+    arrived = tick(core, *out.goal.position[:2], 1.0)
+    assert arrived.goal_kind == "hold" and [e.type for e in arrived.events] == ["reached"]
+
+
+def test_live_goto_waits_when_no_free_approach_is_mapped():
+    grid = OccupancyGrid2D.from_array(np.full((100, 100), UNKNOWN, np.int8), 0.1, (0.0, 0.0))
+    core = core_for(grid)
+    core.set_subtask(goto(5, 1.0, 5.0), object_xy=(7.0, 5.0), require_object_approach=True)
+    out = tick(core, 3.0, 5.0, 0.0)
+    assert out.goal_kind == "hold" and out.goal is None and out.path is None
+    assert not out.events
+    grid.set_array(np.full((100, 100), FREE, np.int8), t=1.0)
+    assert tick(core, 3.0, 5.0, 1.0).goal_kind == "goto"
+
+
+def test_live_goto_waits_if_selected_object_is_missing():
+    grid = OccupancyGrid2D.from_array(np.full((100, 100), FREE, np.int8), 0.1, (0.0, 0.0))
+    core = core_for(grid)
+    core.set_subtask(goto(5, 1.0, 5.0), require_object_approach=True)
+    out = tick(core, 3.0, 5.0, 0.0)
+    assert out.goal_kind == "hold" and out.goal is None and not out.events
+
+
 def test_ablations_and_room_bonus():
     core = core_for(gap_grid(), ablation={"nearest_frontier": True})
     out = tick(core, 6.0, 2.0, 0.0, dets=[det("sofa", 0.9, 120)], obs=[(8.0, 1.0)])

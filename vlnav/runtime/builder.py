@@ -1,7 +1,8 @@
-"""Build the mode-A system (bag source, perception, occupancy grid, memory, exploration (shadow),
-acquisition, planner, bag sim) from a bag config + a run config with per-package overrides (keys:
-bag, perception, mapping, navigation, exploration, memory, acquisition, planner, vlm, sim). Shared
-by scripts/run_system_bag.py, scripts/run_exploration_bag.py and eval/planner/run_openloop.py."""
+"""Build shared perception, mapping, memory and planning components from run-config overrides.
+
+`build_components` supports live adapters; `build_system` adds a bag source and BagEventSim for
+offline mode A. Also shared by exploration replay and planner open-loop evaluation.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -45,6 +46,20 @@ class System:
                              self.grid, self.mapping.depth_points, self.exploration, **kw)
 
 
+@dataclass
+class Components:
+    """Shared pipeline without a bag source or simulated navigation events."""
+    perception: PerceptionPipeline
+    memory: UnifiedMemory
+    matcher: LabelMatcher
+    acquirer: TargetAcquirer
+    planner: PlannerCore
+    vlm: VLMClient
+    grid: OccupancyGrid2D
+    mapping: MappingConfig
+    exploration: ExplorationCore
+
+
 def build_perception(rc: dict, detector: YoloWorldFastSam | None = None) -> PerceptionPipeline:
     pcfg = load_perception_config(overrides=rc.get("perception"))
     vocab = VocabularyManager(load_vocab_file(resolve(pcfg.vocabulary.generic_vocab_file)), pcfg.dynamic.labels)
@@ -83,6 +98,16 @@ def build_system(bag_config: str | Path, rc: dict, run_dir: Path, bag_overrides:
                  detector: YoloWorldFastSam | None = None) -> System:
     """`vlm`, `matcher` and `detector` can be passed in to reuse loaded models across runs."""
     src = BagSource(load_bag_config(resolve(bag_config), {**rc.get("bag", {}), **(bag_overrides or {})}))
+    c = build_components(rc, run_dir, vlm, matcher, detector)
+    sim = BagEventSim(load_sim_config(overrides=rc.get("sim")))
+    return System(src, c.perception, c.memory, c.matcher, c.acquirer, c.planner, sim,
+                  c.vlm, c.grid, c.mapping, c.exploration)
+
+
+def build_components(rc: dict, run_dir: Path, vlm: VLMClient | None = None,
+                     matcher: LabelMatcher | None = None,
+                     detector: YoloWorldFastSam | None = None) -> Components:
+    """Build the same models and shared map for offline replay or live sensor adapters."""
     perception = build_perception(rc, detector)
     mapping = load_mapping_config(overrides=rc.get("mapping"))
     grid = OccupancyGrid2D.from_config(mapping)       # shared: memory (rooms), exploration
@@ -98,6 +123,5 @@ def build_system(bag_config: str | Path, rc: dict, run_dir: Path, bag_overrides:
     acquirer = TargetAcquirer(acfg, matcher, vlm)
     planner = PlannerCore(load_planner_config(overrides=rc.get("planner")), memory, acquirer, vlm, matcher,
                           decision_log=run_dir / "decisions.jsonl")
-    sim = BagEventSim(load_sim_config(overrides=rc.get("sim")))
     exploration = build_exploration(rc, grid, memory)
-    return System(src, perception, memory, matcher, acquirer, planner, sim, vlm, grid, mapping, exploration)
+    return Components(perception, memory, matcher, acquirer, planner, vlm, grid, mapping, exploration)

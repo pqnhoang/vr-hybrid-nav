@@ -5,3 +5,7 @@ runs/
 logs/
 checkpoint/
 sample-data/
+build/
+install/
+log/
+.venv-ros/

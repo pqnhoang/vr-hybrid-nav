@@ -469,3 +469,18 @@ switches per minute, 39 of 46 because the goal frontier disappeared — replayed
 cells became interior free space, 15 clusters shrank below `min_cluster_cells`, 2 cells turned
 unknown (people). The walking robot's 360° LiDAR consumes the nearby frontiers that S_dist favors,
 so in shadow mode switching reflects the map, not oscillation.
+
+## Live ROS 2 adapter [DESIGN]
+
+`ros2/vlnav_ros` implements a single-process sensor-to-goal node using the same core builder.
+This is a first live adapter, not the split core/planner deployment or RemoteMemoryMirror in
+SYSTEM §7. It publishes standard ROS messages rather than introducing custom message packages;
+planner status and TargetReport use JSON in std_msgs/String. See [ros2.md](ros2.md).
+
+LiveRuntime feeds exploration's actual TF-based arrival/failure events to PlannerCore and
+clears selections during replanning. One worker owns mutable pipeline state; ROS callbacks only
+buffer bounded sensor inputs and publish snapshots. Images are dropped when inference falls
+behind. Each LiDAR scan is transformed at its acquisition timestamp before window accumulation,
+matching BagSource. Selected goals without a reachable path are withheld. An active flag,
+empty paths and marker deletion express cancellation because PoseStamped cannot represent it.
+No velocity commands or autonomous motion controller are added.

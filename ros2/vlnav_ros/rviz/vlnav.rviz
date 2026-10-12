@@ -1,0 +1,92 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 35; 35; 35
+    Fixed Frame: odom_lidar
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 1
+      Plane: XY
+    - Class: rviz_default_plugins/Map
+      Name: Occupancy
+      Enabled: true
+      Alpha: 0.85
+      Color Scheme: map
+      Topic:
+        Value: /mapping/occupancy
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+    - Class: rviz_default_plugins/Image
+      Name: Annotated camera
+      Enabled: true
+      Topic:
+        Value: /perception/annotated_image
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+    - Class: rviz_default_plugins/Path
+      Name: Planned path
+      Enabled: true
+      Color: 30; 200; 255
+      Line Style: Lines
+      Line Width: 0.06
+      Topic:
+        Value: /exploration/path
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Frontier points
+      Enabled: true
+      Topic:
+        Value: /exploration/frontiers
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Selected goal
+      Enabled: true
+      Topic:
+        Value: /exploration/markers
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Robot pose
+      Enabled: true
+      Topic:
+        Value: /exploration/robot_markers
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+    - Class: rviz_default_plugins/TF
+      Name: Robot TF
+      Enabled: true
+      Show Axes: true
+      Show Arrows: false
+      Show Names: false
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: Top down
+      Target Frame: base_link
+      Scale: 45
+      Angle: 0
+      X: 0
+      Y: 0
+Window Geometry:
+  Width: 1280
+  Height: 900
