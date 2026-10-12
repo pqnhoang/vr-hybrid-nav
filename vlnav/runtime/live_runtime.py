@@ -16,8 +16,10 @@ class LiveRuntime:
         self.goto_object_approach = goto_object_approach
         self._active_key = None
         self.last_frame_stamp = None
+        self.last_reasoning = ""
 
     def submit(self, instruction: str, t: float) -> None:
+        self.last_reasoning = ""
         if instruction.strip():
             self.c.planner.submit_task(instruction.strip(), t)
         else:
@@ -65,8 +67,10 @@ class LiveRuntime:
             self.c.planner.on_event(event)
         if self._sync() or self._active_key is None:
             out = hold()
-        # Decisions are already persisted by PlannerCore; don't accumulate them forever.
-        self.c.planner.pop_decisions()
+        # Keep the last short planner explanation for the live camera overlay.
+        for decision in self.c.planner.pop_decisions():
+            if decision["kind"] in ("decompose", "replan"):
+                self.last_reasoning = decision.get("reasoning") or decision.get("reason") or ""
         return out
 
     def close(self) -> None:

@@ -27,6 +27,7 @@ def test_actual_pose_reaches_goal_and_produces_target_report(tmp_path):
     rt = runtime(p)
     rt.submit("Find umbrella", 0.)
     first = rt.step(pose(0, 0), 1.)
+    assert rt.last_reasoning == "r"
     assert first.goal == mem.get_object(21).best_view_pose
     assert first.path and p.pop_reports() == []
     # No bag simulator: moving the real pose to the goal drives the real exploration event.

@@ -204,14 +204,25 @@ class VlnavNode(Node):
                         instruction, self._pending_instruction = self._pending_instruction, None
                 if instruction is not None:
                     self.runtime.submit(instruction, now)
+                result = None
                 if frame_valid:
                     result = self.runtime.ingest(frame)
                     processed_frames += 1
                     map_msg = occupancy_message(self.runtime.c.grid, header(self.map_frame, frame.stamp))
                     with self._lock:
                         self._map_msg = map_msg
+                if self._stop.is_set():
+                    break
+                now = self.get_clock().now().nanoseconds * 1e-9
+                fresh = (self.runtime.last_frame_stamp is not None and
+                         0 <= now - self.runtime.last_frame_stamp <= self.options["max_frame_age_s"])
+                robot = self._robot(now) if fresh else None
+                out = self.runtime.step(robot, now)
+                state = self.runtime.c.planner.state()
+                st = state.current
+                if result is not None:
                     try:
-                        annotated = annotate_detections(result)
+                        annotated = annotate_detections(result, state, self.runtime.last_reasoning)
                         h, w = annotated.shape[:2]
                         self.annotated_pub.publish(Image(
                             header=header(frame.camera_id, frame.stamp), height=h, width=w,
@@ -224,15 +235,6 @@ class VlnavNode(Node):
                                 self.camera_writer = None
                     except Exception as exc:
                         self.get_logger().error(f"Annotated camera publish failed: {type(exc).__name__}: {exc}")
-                if self._stop.is_set():
-                    break
-                now = self.get_clock().now().nanoseconds * 1e-9
-                fresh = (self.runtime.last_frame_stamp is not None and
-                         0 <= now - self.runtime.last_frame_stamp <= self.options["max_frame_age_s"])
-                robot = self._robot(now) if fresh else None
-                out = self.runtime.step(robot, now)
-                state = self.runtime.c.planner.state()
-                st = state.current
                 if self.camera_writer is not None and st is not None and st.type == "goto" and st.node_id is not None:
                     key = (st.task_id, st.id)
                     if key != self._saved_goal_key:

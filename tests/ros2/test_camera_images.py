@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import cv2
 import numpy as np
 
-from vlnav_ros.camera_images import CameraImageWriter, annotate_detections
+from vlnav_ros.camera_images import CameraImageWriter, _fit, _planner_lines, annotate_detections
 
 
 def test_camera_detections_and_selected_goal_are_labeled(tmp_path):
@@ -33,3 +33,19 @@ def test_camera_detections_and_selected_goal_are_labeled(tmp_path):
     selected = cv2.imread(str(tmp_path / "latest_goal.jpg"))
     assert selected.shape == (240, 320, 3)
     assert selected[100, 40, 2] > 200
+
+
+def test_camera_overlay_shows_current_task_mode_and_reason():
+    rgb = np.full((480, 640, 3), 255, np.uint8)
+    result = SimpleNamespace(frame=SimpleNamespace(rgb=rgb), detections=[], relevant_idx=[])
+    state = SimpleNamespace(fsm="EXECUTING", instruction="Find a sofa, then reach the blue table",
+                            current=SimpleNamespace(type="explore", target="blue table", node_id=None),
+                            done_reason=None)
+    lines = _planner_lines(state, "The sofa was reached; search for a table that is blue.")
+    assert lines == ["Task: Find a sofa, then reach the blue table", "Mode: EXPLORE blue table",
+                     "Reason: The sofa was reached; search for a table that is blue."]
+    image = annotate_detections(result, state, lines[-1][8:])
+    assert (image[:90] != 255).any() and (image[110:] == 255).all()
+    assert _planner_lines(SimpleNamespace(**{**vars(state), "fsm": "REPLANNING", "current": None}),
+                          "old reason")[1:] == ["Mode: REPLAN", "Reason: Waiting for planner decision"]
+    assert _fit("Task: " + "long text " * 60, 300, cv2.FONT_HERSHEY_SIMPLEX, .5).endswith("...")

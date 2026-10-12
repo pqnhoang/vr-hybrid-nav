@@ -132,6 +132,9 @@ The **Annotated camera** Image display and both **Frontier points** and **Select
 MarkerArray displays are enabled by default. Yellow camera boxes match the active task;
 cyan boxes are other detections. The image topic publishes for every processed camera frame,
 even when disk image saving is disabled.
+Its narrow top panel shows the instruction, current mode and target (PLAN, REPLAN, EXPLORE or
+GOTO), and the latest planner reason. Long lines are shortened to fit the image. The saved
+`latest_camera.jpg` uses the same annotated frame.
 For an existing RViz session, add a MarkerArray display for `/exploration/frontiers`, with
 Reliable / Transient Local QoS, or reload the installed `vlnav.rviz` configuration.
 
