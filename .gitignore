@@ -9,3 +9,4 @@ build/
 install/
 log/
 .venv-ros/
+vr_common_msgs

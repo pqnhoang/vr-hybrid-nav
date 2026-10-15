@@ -49,6 +49,7 @@ def test_sensors_to_goal_map_and_cancel_over_ros(tmp_path, monkeypatch, use_sim_
             Parameter("run_config", value=""),
             Parameter("run_dir", value=""),
             Parameter("use_sim_time", value=use_sim_time),
+            Parameter("max_pose_age_s", value=0.5),
             Parameter("save_map_images", value=use_sim_time),
             Parameter("map_image_dir", value=str(tmp_path / "map_images")),
             Parameter("map_image_every_s", value=1.0),

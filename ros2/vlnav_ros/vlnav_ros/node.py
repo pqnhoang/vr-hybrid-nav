@@ -31,6 +31,7 @@ from vlnav.runtime.live_runtime import LiveRuntime, hold
 from vlnav_ros.camera_images import annotate_detections
 from vlnav_ros.messages import (frontier_messages, header, navigation_messages, occupancy_message,
                                 pose_message, robot_messages)
+from vlnav_ros.navigation_action import NavigationAction
 
 
 class VlnavNode(Node):
@@ -41,9 +42,14 @@ class VlnavNode(Node):
             "run_config": str(resolve("configs/runs/vr_h3_2_ros2.yaml")),
             "run_dir": str(resolve("runs/ros2")),
             "instruction": "",
-            "max_frame_age_s": 5.0,
+            "nav_action_enabled": True,
+            "nav_action_name": "vr_navigate_to_pose",
+            "nav_action_frame": "map",
+            "nav_waypoint_name": "use_goal_pose",
+            "nav_behavior_tree": "",
+            "max_frame_age_s": 30.0,
             "max_scan_age_s": 0.5,
-            "max_pose_age_s": 0.5,
+            "max_pose_age_s": 30.0,
             "goal_timeout_s": 2.0,
             "map_publish_hz": 1.0,
             "save_map_images": False,
@@ -113,6 +119,12 @@ class VlnavNode(Node):
         self.robot_pub = self.create_publisher(MarkerArray, "/exploration/robot_markers", latched)
         self.report_pub = self.create_publisher(String, "/planner/report", 10)
         self.status_pub = self.create_publisher(String, "/planner/status", latched)
+        self.navigation_action = (NavigationAction(
+            self, self.tf_buffer, name=self.options["nav_action_name"],
+            frame=self.options["nav_action_frame"],
+            waypoint_name=self.options["nav_waypoint_name"],
+            behavior_tree=self.options["nav_behavior_tree"])
+            if self.options["nav_action_enabled"] else None)
         self._lock = threading.Lock()
         self._pending_instruction = self.options["instruction"] or None
         self._output, self._output_t = hold(), -float("inf")
@@ -147,7 +159,9 @@ class VlnavNode(Node):
             return ""
         age = now - stamp
         if age > self.options["max_frame_age_s"]:
-            return "image timestamp is too old for ROS time; for bag replay use use_sim_time:=true and --clock"
+            if self.get_parameter("use_sim_time").value:
+                return "image timestamp is too old for ROS time; for bag replay use --clock"
+            return "image timestamp is too old for ROS time; check sensor clock synchronization or max_frame_age_s"
         if age < 0:
             return "image timestamp is ahead of ROS time; check /clock and sensor timestamps"
         return ""
@@ -257,6 +271,7 @@ class VlnavNode(Node):
                     self._robot_pose = robot
                     self._reports.extend(r.model_dump_json() for r in reports)
                     self._status = {"state": state.fsm, "task_id": state.task_id,
+                                    "subtask_id": st.id if st is not None else None,
                                     "instruction": state.instruction, "done_reason": state.done_reason,
                                     "input": clock_issue or self.source.wait_reason,
                                     "use_sim_time": self.get_parameter("use_sim_time").value,
@@ -291,6 +306,9 @@ class VlnavNode(Node):
         if goal is not None:
             self.goal_pub.publish(goal)
             self.point_pub.publish(point)
+        if self.navigation_action is not None:
+            key = (status.get("task_id"), status.get("subtask_id"), out.goal_kind, out.goal_id)
+            self.navigation_action.update(goal, key)
         self.path_pub.publish(path)
         self.marker_pub.publish(markers)
         self.frontier_pub.publish(frontier_messages(frontier_points, header(self.map_frame, now)))

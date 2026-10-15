@@ -42,7 +42,7 @@ selection:
   stuck_window_s: 10
   replan_period_s: 2.0
   no_frontier_patience_s: 5.0
-  goto_reach_radius_m: 1.5
+  goto_reach_radius_m: 0.5
   goto_yaw_tol_rad: null
 ablation:                        # spec §11 switches (also CLI flags of the runners)
   no_ibtp: false                 # instance pool disabled

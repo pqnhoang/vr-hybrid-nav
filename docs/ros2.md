@@ -2,8 +2,8 @@
 
 `ros2/vlnav_ros/vlnav_ros/node.py` runs the existing perception → occupancy grid → unified
 memory → Qwen task planner/acquisition → exploration/path planner on live ROS topics. It
-publishes proposed navigation goals; connect your navigation controller separately. There is
-no `/cmd_vel` publisher or Nav2 action client.
+sends selected goals to the robot's `vr_common_msgs/action/NavigateToPose` server and keeps
+`/exploration/goal` for debugging. It does not publish `/cmd_vel`.
 
 ## Install and launch (ROS 2 Humble, Python 3.10)
 
@@ -114,6 +114,7 @@ no reachable approach cell yet, `goal_active` stays false while mapping continue
 | `/exploration/goal` | `geometry_msgs/msg/PoseStamped` | Selected robot goal `(x, y, z)` + quaternion |
 | `/exploration/goal_point` | `geometry_msgs/msg/PointStamped` | The same goal as an XYZ point |
 | `/exploration/goal_active` | `std_msgs/msg/Bool` | Whether a current reachable goal is available |
+| `/exploration/navigation_action_status` | `std_msgs/msg/String` | JSON action acceptance, feedback and result |
 | `/exploration/path` | `nav_msgs/msg/Path` | Planned XY path, with pose headings |
 | `/mapping/occupancy` | `nav_msgs/msg/OccupancyGrid` | Unknown `-1`, free `0`, occupied `100` |
 | `/perception/annotated_image` | `sensor_msgs/msg/Image` | Processed camera frame with detector boxes, labels, and scores (`bgr8`) |
@@ -152,6 +153,16 @@ While waiting, replanning, cancelling, finished, or missing fresh geometry, it p
 independent of goal validity. `PoseStamped` has no cancellation field:
 downstream consumers must check `goal_active` and message freshness instead of retaining an old
 goal forever. Goal topics themselves are volatile. Marker lifetimes also remove abandoned goals.
+
+The node sends each selected goal once to `vr_navigate_to_pose` by default. The action pose is
+transformed from the exploration frame into `map` through TF; if that transform is missing, the
+debug goal topic still publishes but no action is sent. A changed goal cancels the previous action,
+and `goal_active=false` cancels the current action. Repeated publications of the same goal do not
+create repeated action requests. `waypoint_name` defaults to `use_goal_pose`; `behavior_tree`
+defaults to an empty string.
+Set `nav_action_name:=/your/action/name` if your robot uses a different action endpoint, or
+`nav_action_enabled:=false` for visualization-only replay. The action status topic uses the
+`action_goal_response`, `action_feedback` and `action_result` JSON event names.
 
 ## Headless map images
 
@@ -204,15 +215,19 @@ time, and the node clears goals and reports an error on a backwards ROS clock ju
 
 ## Parameters and troubleshooting
 
-`sensor_config`, `run_config`, `run_dir`, `instruction`, `use_sim_time`, `save_map_images`,
-`map_image_every_s` and `map_image_dir` are launch arguments.
-The direct node also accepts `max_frame_age_s` (5), `max_scan_age_s` (0.5), `max_pose_age_s` (0.5),
+`sensor_config`, `run_config`, `run_dir`, `instruction`, `use_sim_time`, `max_frame_age_s`, `save_map_images`,
+`map_image_every_s`, `map_image_dir`, `nav_action_enabled`, `nav_action_name`,
+`nav_action_frame`, `nav_waypoint_name` and `nav_behavior_tree` are launch arguments.
+The image age limit `max_frame_age_s` defaults to 30 seconds and can be set at launch, for example
+`max_frame_age_s:=60.0`. The direct node also accepts `max_scan_age_s` (0.5), `max_pose_age_s` (30.0),
 `goal_timeout_s` (2), `map_publish_hz` (1) and `publish_extra_static_tf` (true). Parameters are
 read at startup. Live planning always uses `planner.blocking=false`.
 
 Check `/planner/status` if there is no map or goal. All sensor timestamps must share the ROS
 clock; set `use_sim_time=true` for bag replay and false for a live robot. A current base TF is
 required for goal selection, even when older transforms still suffice for image processing.
+For a live robot, a larger image age limit can accommodate delayed frames, but camera, LiDAR and
+TF stamps must still share the same clock. The scan and pose age limits remain 0.5 seconds.
 The launch default is `use_sim_time=false`; receiving camera and LiDAR messages alone does not
 mean their timestamps are valid. For replay, **both** `use_sim_time:=true` on the launch command
 and `--clock` on `ros2 bag play` are required. Status includes `use_sim_time`, `ros_time`,
