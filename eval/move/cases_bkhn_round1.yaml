@@ -1,0 +1,21 @@
+# Move-subtask cases for bkhn_round1 (TASK_move_subtask.md §13.1): outdoor campus walk, D455 depth.
+# Each instruction describes what the recorded robot actually did between start_offset_s and
+# end_offset_s (written from a contact sheet of the camera every 8 s and the odometry track).
+bag_config: configs/bags/bkhn_round1.yaml
+cases:
+  - id: plaza_between_planters
+    start_offset_s: 16.0
+    end_offset_s: 44.0
+    instruction: "Walk straight across the paved plaza between the brick planters and stop at the far end of the plaza."
+  - id: left_at_construction_fence
+    start_offset_s: 70.0
+    end_offset_s: 100.0
+    instruction: "Turn left at the green construction fence and walk along the road past the parked motorbikes toward the trees."
+  - id: covered_walkway
+    start_offset_s: 166.0
+    end_offset_s: 215.0
+    instruction: "Walk straight along the white building through the covered walkway with pillars, pass the students, and stop where the walkway ends."
+  - id: left_to_glass_stairs
+    start_offset_s: 215.0
+    end_offset_s: 256.0
+    instruction: "Continue along the paved path, then turn left toward the building with the blue glass staircase and walk up the road."

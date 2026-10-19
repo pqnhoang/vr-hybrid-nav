@@ -29,8 +29,8 @@ from vlnav.io.tf_buffer import static_matrix
 from vlnav.runtime.builder import build_components
 from vlnav.runtime.live_runtime import LiveRuntime, hold
 from vlnav_ros.camera_images import annotate_detections
-from vlnav_ros.messages import (frontier_messages, header, navigation_messages, occupancy_message,
-                                pose_message, robot_messages)
+from vlnav_ros.messages import (frontier_messages, header, move_messages, navigation_messages,
+                                occupancy_message, pose_message, robot_messages)
 from vlnav_ros.navigation_action import NavigationAction
 
 
@@ -71,7 +71,9 @@ class VlnavNode(Node):
             raise ValueError("Invalid sensor rate/window/wait in sensor_config")
         self.map_frame = cfg.poses.map_frame
         self.source = LiveSource(cfg, self.options["max_frame_age_s"], self.options["max_scan_age_s"])
-        rc = deep_merge(load_yaml(resolve(self.options["run_config"])), {"planner": {"blocking": False}})
+        # live: VLM and DualVLN S2 replies never block the pipeline thread
+        rc = deep_merge(load_yaml(resolve(self.options["run_config"])),
+                        {"planner": {"blocking": False}, "move": {"s2": {"blocking": False}}})
         self.get_logger().info("Loading perception, memory and planner models...")
         self.runtime = LiveRuntime(components or build_components(rc, Path(self.options["run_dir"])),
                                    goto_object_approach=True)
@@ -117,6 +119,8 @@ class VlnavNode(Node):
         self.marker_pub = self.create_publisher(MarkerArray, "/exploration/markers", latched)
         self.frontier_pub = self.create_publisher(MarkerArray, "/exploration/frontiers", latched)
         self.robot_pub = self.create_publisher(MarkerArray, "/exploration/robot_markers", latched)
+        self.move_pub = (self.create_publisher(MarkerArray, "/move/markers", latched)
+                         if self.runtime.move is not None else None)
         self.report_pub = self.create_publisher(String, "/planner/report", 10)
         self.status_pub = self.create_publisher(String, "/planner/status", latched)
         self.navigation_action = (NavigationAction(
@@ -131,6 +135,7 @@ class VlnavNode(Node):
         self._map_msg = None
         self._frontier_points = []
         self._robot_pose = None
+        self._move = None                  # MoveCore snapshot while a move subtask runs
         self._saved_goal_key = None
         self._latest_image_stamp = None
         self._status = {"state": "IDLE", "input": self.source.wait_reason}
@@ -234,9 +239,12 @@ class VlnavNode(Node):
                 out = self.runtime.step(robot, now)
                 state = self.runtime.c.planner.state()
                 st = state.current
+                move = (self.runtime.move.snapshot() if self.runtime.move is not None and st is not None
+                        and st.type == "move" else None)
                 if result is not None:
                     try:
-                        annotated = annotate_detections(result, state, self.runtime.last_reasoning)
+                        annotated = annotate_detections(result, state, self.runtime.last_reasoning,
+                                                        move and move["last"])
                         h, w = annotated.shape[:2]
                         self.annotated_pub.publish(Image(
                             header=header(frame.camera_id, frame.stamp), height=h, width=w,
@@ -269,6 +277,7 @@ class VlnavNode(Node):
                     self._output_t = now
                     self._frontier_points = frontier_points
                     self._robot_pose = robot
+                    self._move = move
                     self._reports.extend(r.model_dump_json() for r in reports)
                     self._status = {"state": state.fsm, "task_id": state.task_id,
                                     "subtask_id": st.id if st is not None else None,
@@ -280,12 +289,19 @@ class VlnavNode(Node):
                                     "processed_frames": processed_frames,
                                     "frontier_points": len(frontier_points), "frame_fresh": fresh,
                                     "pose_fresh": robot is not None}
+                    if move is not None:
+                        last = move["last"] or {}
+                        self._status["move"] = {"n_cycles": move["n_cycles"], "in_flight": move["in_flight"],
+                                                "n_failures": move["n_failures"], "decision": last.get("decision"),
+                                                "reason": last.get("reason"),
+                                                "s2": [e["text"] for e in last.get("exchanges", [])]}
                 self._stop.wait(self.period)
         except Exception as exc:
             self.get_logger().error(f"Pipeline stopped: {type(exc).__name__}: {exc}")
             with self._lock:
                 self._output = hold()
                 self._robot_pose = None
+                self._move = None
                 self._status = {"state": "ERROR", "error": str(exc)}
         finally:
             self.runtime.close()
@@ -297,6 +313,7 @@ class VlnavNode(Node):
             status = dict(self._status)
             frontier_points = self._frontier_points
             robot = self._robot_pose
+            move = self._move
             reports, self._reports = self._reports, []
         if robot is not None and not (0 <= now - robot.stamp <= self.options["max_pose_age_s"]):
             robot = None
@@ -314,6 +331,8 @@ class VlnavNode(Node):
         self.frontier_pub.publish(frontier_messages(frontier_points, header(self.map_frame, now)))
         self.robot_pub.publish(robot_messages(robot, header(self.map_frame, now),
                                               self.options["goal_timeout_s"]))
+        if self.move_pub is not None:
+            self.move_pub.publish(move_messages(move, header(self.map_frame, now)))
         status.update(goal_active=goal is not None, goal_kind=out.goal_kind)
         self.status_pub.publish(String(data=json.dumps(status)))
         for report in reports:
@@ -333,11 +352,12 @@ class VlnavNode(Node):
             msg = self._map_msg
             frontiers = self._frontier_points
             robot = self._robot_pose
+            move = self._move
             out = self._output if 0 <= now - self._output_t <= self.options["goal_timeout_s"] else hold()
         if msg is None:
             return
         try:
-            self.image_writer.write(msg, frontiers, robot, out)
+            self.image_writer.write(msg, frontiers, robot, out, move)
         except Exception as exc:
             self.get_logger().error(f"Map image saving disabled: {type(exc).__name__}: {exc}")
             self.image_writer = None
@@ -348,6 +368,7 @@ class VlnavNode(Node):
             self._output = hold()
             self._frontier_points = []
             self._robot_pose = None
+            self._move = None
         if rclpy.ok():
             self._publish_navigation()
         self._worker.join(timeout=5.0)

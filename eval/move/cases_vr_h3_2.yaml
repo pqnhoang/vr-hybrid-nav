@@ -1,0 +1,21 @@
+# Move-subtask cases for vr_h3_2_calib_1 (TASK_move_subtask.md §13.1). Each instruction describes what
+# the recorded robot actually did between start_offset_s and end_offset_s (written from the camera
+# video and the odometry track), so a good DualVLN waypoint lies near the robot's future path.
+bag_config: configs/bags/vr_h3_2_calib_1.yaml
+cases:
+  - id: sofa_to_window
+    start_offset_s: 0.0
+    end_offset_s: 11.0
+    instruction: "Walk past the beige sofa on your left and stop near the high bar chairs by the window."
+  - id: path_past_red_wall
+    start_offset_s: 16.0
+    end_offset_s: 32.0
+    instruction: "Follow the white path on the floor, pass the red wall on your right and go toward the office desks."
+  - id: colorful_wall_corridor
+    start_offset_s: 32.0
+    end_offset_s: 53.0
+    instruction: "Walk along the white path next to the colorful painted wall and stop at the end of the corridor near the plant."
+  - id: return_along_wall
+    start_offset_s: 70.0
+    end_offset_s: 96.0
+    instruction: "Walk back along the white path past the colorful wall and stop near the dining tables."

@@ -1,5 +1,8 @@
 """Decomposition and replanning VLM queries (planner spec §5.3, §5.4).
 
+With `move` enabled (TASK_move_subtask.md §10.2) the subtask schema gains `"move"` + `instruction`
+and the prompts gain the route rule; disabled, both are unchanged.
+
 Both send the serialized scene graph and — because the paper uses the scene graph *and* image
 memory for decomposition and replanning (AUDIT 2.4) — best-view crops of up to `planning_images`
 objects most relevant to the instruction / pending targets, each tagged with its #id.
@@ -29,6 +32,9 @@ _SUBTASK = {"type": "object",
                            "node_id": {"type": ["integer", "null"]},
                            "room_hint": {"type": ["string", "null"]}},
             "required": ["type", "target"]}
+_SUBTASK_MOVE = {**_SUBTASK, "properties": {**_SUBTASK["properties"],
+                                            "type": {"type": "string", "enum": ["explore", "goto", "move"]},
+                                            "instruction": {"type": ["string", "null"]}}}
 _TARGET = {"type": "object",
            "properties": {"name": {"type": "string"},
                           "detector_prompts": {"type": "array", "items": {"type": "string"}},
@@ -50,6 +56,12 @@ REPLAN_SCHEMA = {"type": "object",
                                     "required": ["name", "status"]}},
                                 "subtasks": {"type": "array", "items": _SUBTASK}},
                  "required": ["reasoning", "task_done", "subtasks"]}
+
+
+def with_move(schema: dict) -> dict:
+    """Schema with `move` subtasks (same structure, other subtask item)."""
+    items = {"type": "array", "items": _SUBTASK_MOVE}
+    return {**schema, "properties": {**schema["properties"], "subtasks": items}}
 
 
 @dataclass
@@ -75,6 +87,7 @@ class PlanQuery:
         self.env = Environment(loader=FileSystemLoader(PROMPT_DIR), undefined=StrictUndefined,
                                keep_trailing_newline=True)
         self.planning_images = cfg.planning_images        # ablation: 0 = text only
+        self.move = False                                 # PlannerCore sets it from move.enabled
 
     def select_images(self, memory: MemoryView, texts: list[str]) -> list[int]:
         if self.planning_images <= 0:
@@ -127,8 +140,9 @@ class Decomposer(PlanQuery):
         graph = self.serializer.serialize(memory, [instruction], exploration)
         images = self.select_images(memory, [instruction])
         prompt = self.env.get_template("decompose.j2").render(
-            instruction=instruction, graph=graph, n_images=len(images))
-        return self._ask(prompt, memory, images, DECOMPOSE_SCHEMA, graph)
+            instruction=instruction, graph=graph, n_images=len(images), move=self.move)
+        return self._ask(prompt, memory, images, with_move(DECOMPOSE_SCHEMA) if self.move else DECOMPOSE_SCHEMA,
+                         graph)
 
 
 class Replanner(PlanQuery):
@@ -139,5 +153,5 @@ class Replanner(PlanQuery):
         images = self.select_images(memory, active)
         prompt = self.env.get_template("replan.j2").render(
             instruction=state.instruction, targets=state.targets, history=state.history,
-            last_event=last_event, graph=graph, n_images=len(images))
-        return self._ask(prompt, memory, images, REPLAN_SCHEMA, graph)
+            last_event=last_event, graph=graph, n_images=len(images), move=self.move)
+        return self._ask(prompt, memory, images, with_move(REPLAN_SCHEMA) if self.move else REPLAN_SCHEMA, graph)

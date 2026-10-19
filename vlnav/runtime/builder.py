@@ -17,6 +17,7 @@ from vlnav.io.sources import BagSource, load_bag_config, resolve
 from vlnav.mapping.config import MappingConfig, load_mapping_config
 from vlnav.mapping.occupancy import OccupancyGrid2D
 from vlnav.memory import ImageStore, RoomLabeler, UnifiedMemory, load_memory_config
+from vlnav.move import CachedS2Client, HttpS2Client, MoveCore, S2Client, load_move_config
 from vlnav.navigation import GridAStar, load_navigation_config
 from vlnav.perception.config import load_checkpoint_paths, load_perception_config
 from vlnav.perception.detector import YoloWorldFastSam
@@ -40,10 +41,11 @@ class System:
     grid: OccupancyGrid2D
     mapping: MappingConfig
     exploration: ExplorationCore
+    move: MoveCore | None = None             # move.enabled
 
     def runtime(self, **kw) -> SystemRuntime:
         return SystemRuntime(self.source, self.perception, self.memory, self.planner, self.sim,
-                             self.grid, self.mapping.depth_points, self.exploration, **kw)
+                             self.grid, self.mapping.depth_points, self.exploration, move=self.move, **kw)
 
 
 @dataclass
@@ -58,6 +60,7 @@ class Components:
     grid: OccupancyGrid2D
     mapping: MappingConfig
     exploration: ExplorationCore
+    move: MoveCore | None = None             # move.enabled
 
 
 def build_perception(rc: dict, detector: YoloWorldFastSam | None = None) -> PerceptionPipeline:
@@ -87,6 +90,16 @@ def build_exploration(rc: dict, grid: OccupancyGrid2D, memory: UnifiedMemory | N
     return ExplorationCore(ecfg, grid, GridAStar(ncfg), ncfg.robot_radius_m, rooms)
 
 
+def build_move(rc: dict, grid: OccupancyGrid2D, s2: S2Client | None = None) -> MoveCore:
+    """`s2` defaults to the HTTP client of `move.s2` (cached when `cache_dir` is set)."""
+    mcfg = load_move_config(overrides=rc.get("move"))
+    if s2 is None:
+        s2 = HttpS2Client(mcfg.s2.base_url, mcfg.s2.timeout_s)
+        if mcfg.s2.cache_dir:
+            s2 = CachedS2Client(s2, resolve(mcfg.s2.cache_dir))
+    return MoveCore(mcfg, grid, GridAStar(load_navigation_config(overrides=rc.get("navigation"))), s2)
+
+
 def build_matcher(acfg) -> LabelMatcher:
     sym = acfg.symbolic
     return LabelMatcher(make_text_embedder(sym.text_encoder, sym.text_encoder_path, sym.device),
@@ -101,7 +114,7 @@ def build_system(bag_config: str | Path, rc: dict, run_dir: Path, bag_overrides:
     c = build_components(rc, run_dir, vlm, matcher, detector)
     sim = BagEventSim(load_sim_config(overrides=rc.get("sim")))
     return System(src, c.perception, c.memory, c.matcher, c.acquirer, c.planner, sim,
-                  c.vlm, c.grid, c.mapping, c.exploration)
+                  c.vlm, c.grid, c.mapping, c.exploration, c.move)
 
 
 def build_components(rc: dict, run_dir: Path, vlm: VLMClient | None = None,
@@ -121,7 +134,9 @@ def build_components(rc: dict, run_dir: Path, vlm: VLMClient | None = None,
                                               "logging": {"debug_jsonl": str(run_dir / "acquisition_debug.jsonl")}})
     matcher = matcher or build_matcher(acfg)
     acquirer = TargetAcquirer(acfg, matcher, vlm)
+    move_on = load_move_config(overrides=rc.get("move")).enabled
     planner = PlannerCore(load_planner_config(overrides=rc.get("planner")), memory, acquirer, vlm, matcher,
-                          decision_log=run_dir / "decisions.jsonl")
+                          decision_log=run_dir / "decisions.jsonl", move_enabled=move_on)
     exploration = build_exploration(rc, grid, memory)
-    return Components(perception, memory, matcher, acquirer, planner, vlm, grid, mapping, exploration)
+    move = build_move(rc, grid) if move_on else None
+    return Components(perception, memory, matcher, acquirer, planner, vlm, grid, mapping, exploration, move)

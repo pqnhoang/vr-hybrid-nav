@@ -3,6 +3,8 @@
     new_task  -> DECOMPOSING -> validate -> acquire (goto) -> EXECUTING(first subtask)
     EXECUTING explore: candidate_found (internal check) | no_frontier | timeout -> end subtask
     EXECUTING goto:    reached -> TargetReport | nav_failed | timeout -> blacklist -> end subtask
+    EXECUTING move:    reached (DualVLN STOP) | nav_failed | timeout -> end subtask, always replan
+                       (a route is not a target: no TargetEntry, no TargetReport; TASK_move_subtask.md §10.2)
     end subtask -> REPLANNING -> validate -> DONE if task_done / all targets finished, else dispatch
     task_timeout_s -> FAILED; abort -> stop + FAILED
 
@@ -38,6 +40,7 @@ from vlnav.planner.validation import (ValidatedPlan, fallback_plan, validate_dec
 ACTIVE_FSM = ("DECOMPOSING", "EXECUTING", "REPLANNING")
 EXPLORE_END = ("candidate_found", "no_frontier", "timeout")
 GOTO_FAIL = ("nav_failed", "timeout")
+MOVE_END = ("reached", "nav_failed", "timeout")
 
 
 @dataclass
@@ -45,7 +48,7 @@ class _Outcome:
     task_id: int
     kind: str
     targets: list[TargetEntry]
-    subtask: dict | None = None            # {type, target, node_id, goal_pose, room_hint}
+    subtask: dict | None = None            # {type, target, node_id, goal_pose, room_hint[, instruction]}
     done: bool = False
     failed: bool = False
     reason: str = ""
@@ -64,13 +67,15 @@ class PlannerCore:
     def __init__(self, cfg: PlannerConfig, memory: MemoryView, acquirer: TargetAcquirer,
                  vlm: VLMClient, matcher: LabelMatcher | None,
                  exploration_fn: Callable[[], ExplorationSummary | None] | None = None,
-                 decision_log: str | Path | None = None):
+                 decision_log: str | Path | None = None, move_enabled: bool = False):
         self.cfg = cfg
+        self.move_enabled = move_enabled           # `move` subtasks in schema, prompts and validation
         self.memory = memory
         self.acquirer = acquirer
         self.serializer = GraphSerializer(cfg, matcher)
         self.decomposer = Decomposer(cfg, vlm, self.serializer)
         self.replanner = Replanner(cfg, vlm, self.serializer)
+        self.decomposer.move = self.replanner.move = move_enabled
         self.exploration_fn = exploration_fn
         log = decision_log if decision_log is not None else cfg.decision_log
         self.decision_log = Path(log) if log else None
@@ -114,8 +119,10 @@ class PlannerCore:
         if s.fsm != "EXECUTING" or st is None or e.task_id != s.task_id or e.subtask_id != st.id:
             self._log("ignored_event", event=e.model_dump(), reason="stale or no active subtask")
             return
-        tgt = s.target(st.target)
-        if st.type == "explore" and e.type in EXPLORE_END:
+        tgt = s.target(st.target) if st.type != "move" else None
+        if st.type == "move" and e.type in MOVE_END:
+            pass                                          # outcome goes to the history; replan decides
+        elif st.type == "explore" and e.type in EXPLORE_END:
             if e.type == "candidate_found":
                 nid = int(e.payload.get("node_id", -1))
                 self._seen_candidates.setdefault(tgt.name, set()).add(nid)
@@ -134,13 +141,15 @@ class PlannerCore:
         else:
             self._log("ignored_event", event=e.model_dump(), reason=f"not handled for {st.type}")
             return
-        if tgt.active and tgt.attempts >= self.cfg.max_attempts_per_target:
+        if tgt is not None and tgt.active and tgt.attempts >= self.cfg.max_attempts_per_target:
             tgt.status, tgt.notes = "failed", f"{tgt.attempts} failed attempts"
         s.history.append({"type": st.type, "target": st.target, "node_id": st.node_id,
-                          "outcome": e.type, "t": e.stamp, "subtask_id": st.id})
+                          "outcome": e.type, "t": e.stamp, "subtask_id": st.id,
+                          **({"instruction": st.instruction} if st.type == "move" else {})})
         s.current = None
         self._log("subtask_end", event=e.model_dump())
-        if not any(t.active for t in s.targets):
+        # with move subtasks a route may still follow the last target: the replanner decides
+        if not self.move_enabled and not any(t.active for t in s.targets):
             return self._finish("DONE", "all targets reported or failed")
         s.fsm = "REPLANNING"
         self._launch("replan", f"{e.type} for {st.type} '{st.target}'"
@@ -260,8 +269,9 @@ class PlannerCore:
                   "last_event": last_event, "memory_version": mem.version()}
         if kind == "decompose":
             q = self.decomposer.decompose(state.instruction, mem, expl)
-            plan = validate_decomposition(q.data, mem) if q.data is not None else None
-            if plan is None or not plan.targets:
+            plan = (validate_decomposition(q.data, mem, self.move_enabled, state.instruction)
+                    if q.data is not None else None)
+            if plan is None or not (plan.targets or plan.subtasks):          # a route-only task has no targets
                 out = _Outcome(state.task_id, kind, [], failed=True,
                                reason=f"decomposition failed: {q.error or 'no targets'}",
                                log={"query": _query_log(q), "input": inputs})
@@ -269,7 +279,8 @@ class PlannerCore:
                 return out
         else:
             q = self.replanner.replan(state, last_event, mem, expl)
-            plan = validate_replan(q.data, state, mem) if q.data is not None else fallback_plan(state)
+            plan = (validate_replan(q.data, state, mem, self.move_enabled, self.cfg.max_attempts_per_target)
+                    if q.data is not None else fallback_plan(state))
         out = self._choose(state, plan, kind, mem)
         out.log["query"] = _query_log(q)
         out.log["input"] = inputs
@@ -313,12 +324,22 @@ class PlannerCore:
         log = {"reasoning": plan.reasoning, "fixes": plan.fixes,
                "plan": [vars(p) for p in plan.subtasks], "task_done": plan.task_done}
         targets = plan.targets
-        if plan.task_done or not any(t.active for t in targets):
+        moves = [p for p in plan.subtasks if p.type == "move"]
+        if plan.task_done or not (any(t.active for t in targets) or moves):
+            last = state.history[-1] if state.history else {}
+            if not plan.task_done and last.get("type") == "move" and last.get("outcome") != "reached" \
+                    and not any(t.status == "reported" for t in targets):
+                return _Outcome(state.task_id, kind, targets, failed=True,
+                                reason=f"route {last['target']!r} ended with {last['outcome']}", log=log)
             return _Outcome(state.task_id, kind, targets, done=True,
                             reason="planner: task done" if plan.task_done else "all targets finished",
                             log=log)
         by_name = {t.name.lower(): t for t in targets}
         for p in plan.subtasks:
+            if p.type == "move":
+                sub = {"type": "move", "target": p.target, "node_id": None, "goal_pose": None,
+                       "room_hint": None, "instruction": p.instruction}
+                return _Outcome(state.task_id, kind, targets, sub, log=log)
             tgt = by_name.get(p.target.lower())
             if tgt is None or not tgt.active:
                 continue
@@ -370,6 +391,15 @@ class PlannerCore:
             self._log(out.kind, **out.log)
             return self._finish("FAILED" if out.failed else "DONE", out.reason)
         sub = out.subtask
+        if sub["type"] == "move":                         # a route: no target entry to update
+            st = Subtask(id=self._next_subtask_id, task_id=s.task_id, type="move", target=sub["target"],
+                         instruction=sub["instruction"])
+            self._next_subtask_id += 1
+            s.current, s.fsm = st, "EXECUTING"
+            self._subtask_t0, self._last_check = self._now, float("-inf")
+            self._dispatched.append(st)
+            self._log(out.kind, dispatched=st.model_dump(mode="json"), **out.log)
+            return
         tgt = s.target(sub["target"])
         st = Subtask(id=self._next_subtask_id, task_id=s.task_id, type=sub["type"], target=tgt.name,
                      detector_prompts=list(tgt.detector_prompts), room_hint=sub["room_hint"],

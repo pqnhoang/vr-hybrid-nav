@@ -123,6 +123,7 @@ no reachable approach cell yet, `goal_active` stays false while mapping continue
 | `/exploration/robot_markers` | `visualization_msgs/msg/MarkerArray` | Blue robot heading arrow and `ROBOT` label; clears when pose is stale |
 | `/planner/status` | `std_msgs/msg/String` | JSON task state, input wait state and goal validity |
 | `/planner/report` | `std_msgs/msg/String` | Existing `TargetReport` serialized as JSON when reached |
+| `/move/markers` | `visualization_msgs/msg/MarkerArray` | Move subtasks only: S2 camera ray, projected floor point, S2 text |
 
 The map defaults to 1 Hz; navigation output uses `exploration.select_rate_hz` (2 Hz by default).
 Map, annotated camera image, path, goal/frontier/robot markers and status use reliable transient-local QoS so RViz can join after startup.
@@ -163,6 +164,41 @@ defaults to an empty string.
 Set `nav_action_name:=/your/action/name` if your robot uses a different action endpoint, or
 `nav_action_enabled:=false` for visualization-only replay. The action status topic uses the
 `action_goal_response`, `action_feedback` and `action_result` JSON event names.
+
+## Move subtasks (DualVLN routes)
+
+Route parts of an instruction ("walk down the corridor and stop at the glass door") can run on
+DualVLN instead of exploration (plans/TASK_move_subtask.md). Start the S2 server first, then the
+node with a run config that sets `move.enabled: true`:
+
+```bash
+env -u LD_LIBRARY_PATH ~/miniconda3/envs/internnav/bin/python scripts/serve_dualvln_s2.py \
+    --internnav ~/hoangpqn/vln/InternNav \
+    --aux-ckpt-dir ~/hoangpqn/vr_vln_foca/main_baseline/InternNav/checkpoints \
+    --model checkpoint/vln/InternVLA-N1-DualVLN --devices 0 --port 8001
+PYTHONPATH=.:$PYTHONPATH ros2 launch vlnav_ros vlnav.launch.py \
+    run_config:=configs/runs/vr_h3_2_ros2_move.yaml
+```
+
+DualVLN takes GPU 0 (~17.4 GB), so that config puts perception on GPU 1 next to Qwen3-VL. During
+a `move` subtask:
+
+- `/exploration/goal` (and the navigation action) carries the reachable goal of the last S2 pixel
+  goal, with `goal_kind: move`. A goal kept by hysteresis keeps its id and is not resent.
+- `/perception/annotated_image` marks the S2 pixel goal (magenta) and adds a fourth panel line with
+  the S2 replies and the decision. The pixel was asked on an earlier frame, about 1 s old.
+- `/move/markers` (MarkerArray, transient local) shows the camera ray to the floor and the projected
+  floor point (orange) with the S2 text. Saved map PNGs draw the same ray.
+- `/planner/status` gains `move`: cycles, in-flight query, consecutive failures, last decision and
+  S2 texts.
+
+S2 queries never block the pipeline thread (the node forces `move.s2.blocking: false`). DualVLN
+STOP ends the route (`reached`); `nav_failed` / `timeout` make the planner replan.
+
+**Rotation [VERIFY on the robot].** `←` / `→` replies give a goal at the robot's position with a
+turned heading (`move.actions.rotate_mode: in_place`). If the robot's `NavigateToPose` server
+ignores yaw within its xy tolerance, the robot will not turn. In that case set
+`rotate_mode: offset`, which puts the goal `rotate_offset_m` ahead in the new heading.
 
 ## Headless map images
 
@@ -221,7 +257,7 @@ time, and the node clears goals and reports an error on a backwards ROS clock ju
 The image age limit `max_frame_age_s` defaults to 30 seconds and can be set at launch, for example
 `max_frame_age_s:=60.0`. The direct node also accepts `max_scan_age_s` (0.5), `max_pose_age_s` (30.0),
 `goal_timeout_s` (2), `map_publish_hz` (1) and `publish_extra_static_tf` (true). Parameters are
-read at startup. Live planning always uses `planner.blocking=false`.
+read at startup. Live planning always uses `planner.blocking=false` (and `move.s2.blocking=false`).
 
 Check `/planner/status` if there is no map or goal. All sensor timestamps must share the ROS
 clock; set `use_sim_time=true` for bag replay and false for a live robot. A current base TF is

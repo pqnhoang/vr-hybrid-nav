@@ -11,7 +11,7 @@ from vlnav.common.models import Pose
 from vlnav.exploration.explorer import ExplorationOutput
 from vlnav.mapping.occupancy import OccupancyGrid2D
 from vlnav.runtime.live_runtime import hold
-from vlnav_ros.messages import (frontier_messages, header, navigation_messages,
+from vlnav_ros.messages import (frontier_messages, header, move_messages, navigation_messages,
                                 occupancy_message, robot_messages)
 
 
@@ -82,3 +82,18 @@ def test_robot_pose_marker_has_heading_and_clears_when_pose_missing():
     assert label.text == "ROBOT" and label.pose.position.z > 0
     assert arrow.lifetime.sec == label.lifetime.sec == 2
     assert [m.action for m in robot_messages(None, hdr, 2.).markers] == [Marker.DELETEALL]
+
+
+def test_move_markers_show_ray_point_and_text_then_clear():
+    snap = {"active": True, "last": {"k": 3, "decision": "new_goal", "reason": None,
+                               "exchanges": [{"look_down": False, "text": "↓"}, {"look_down": True, "text": "320 400"}],
+                               "projection": {"uv": [200.0, 150.0], "cam_xy": [-1.0, -1.0], "p_map": [0.5, 0.5, 0.0],
+                                              "floor_xy": [0.5, 0.5]}}}
+    msg = deserialize_message(serialize_message(move_messages(snap, header("map", 1.))), MarkerArray)
+    clear, ray, point, text = msg.markers
+    assert clear.action == Marker.DELETEALL and ray.type == Marker.LINE_STRIP
+    assert [(p.x, p.y) for p in ray.points] == [(-1., -1.), (.5, .5)]
+    assert (point.pose.position.x, point.pose.position.y) == (.5, .5)
+    assert text.text == "S2 #3: ↓ | 320 400"
+    for gone in (None, {**snap, "active": False}, {"active": True, "last": None}):
+        assert [m.action for m in move_messages(gone, header("map", 2.)).markers] == [Marker.DELETEALL]

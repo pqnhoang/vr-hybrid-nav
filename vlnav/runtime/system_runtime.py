@@ -18,6 +18,11 @@ frontiers, scores and goals from the same grid and subtasks, its outputs and eve
 (`RunLog.exploration`, `exploration_events`), but the robot follows the recorded path and
 `BagEventSim` produces the planner's `reached` / `nav_failed` / `no_frontier`; explore subtasks end
 through the planner's candidate check (or `no_frontier` at bag end).
+
+With a MoveCore (`move.enabled`, TASK_move_subtask.md §10.1) every frame also goes to
+`move.on_frame`, and during a `move` subtask `move.step` runs every frame. Its goals are shadow
+goals as well, but its events (DualVLN STOP -> `reached`, `nav_failed`, `timeout`) go to the planner:
+nothing else can end a route.
 """
 from __future__ import annotations
 
@@ -32,6 +37,7 @@ from vlnav.exploration.explorer import ExplorationCore, ExplorationOutput
 from vlnav.mapping.config import DepthPointsCfg
 from vlnav.mapping.occupancy import OccupancyGrid2D
 from vlnav.memory.scene_graph import UnifiedMemory
+from vlnav.move.core import MoveCore
 from vlnav.perception.depth_utils import depth_to_points
 from vlnav.perception.pipeline import PerceptionPipeline
 from vlnav.planner.core import PlannerCore
@@ -57,6 +63,8 @@ class RunLog:
     trajectory_xy: list[np.ndarray] = field(default_factory=list)     # robot base, map frame
     exploration: list[tuple[float, ExplorationOutput]] = field(default_factory=list)   # shadow goals
     exploration_events: list[PlannerEvent] = field(default_factory=list)             # not sent (mode A)
+    move: list[tuple[float, ExplorationOutput]] = field(default_factory=list)          # shadow move goals
+    move_records: list[dict] = field(default_factory=list)                             # one per S2 cycle
 
 
 def points_of(frame: Frame, depth_cfg: DepthPointsCfg) -> np.ndarray:
@@ -87,7 +95,8 @@ class SystemRuntime:
                  grid: OccupancyGrid2D, depth_cfg: DepthPointsCfg,
                  exploration: ExplorationCore | None = None,
                  on_frame: FrameHook | None = None,
-                 before_frame: Callable[[Frame], None] | None = None):
+                 before_frame: Callable[[Frame], None] | None = None,
+                 move: MoveCore | None = None):
         self.source = source
         self.perception = perception
         self.memory = memory
@@ -96,6 +105,8 @@ class SystemRuntime:
         self.grid = grid                         # shared with memory (rooms) and exploration
         self.depth_cfg = depth_cfg
         self.exploration = exploration           # shadow mode (mode A)
+        self.move = move                         # move subtasks (DualVLN); None: move disabled
+        self.move_view: tuple[dict, np.ndarray | None] | None = None   # snapshot + model image after the last move step
         self.last_exploration: ExplorationOutput | None = None
         self._last_select_t = -float("inf")
         self.on_frame = on_frame
@@ -109,6 +120,8 @@ class SystemRuntime:
             self.bag_sim.set_subtask(st, t)
             if self.exploration is not None:
                 self.exploration.set_subtask(st)
+            if self.move is not None:
+                self.move.set_subtask(st)
             self.log.dispatched.append((t, st))
         return sts
 
@@ -119,6 +132,18 @@ class SystemRuntime:
             out = self.last_exploration = self.exploration.step(robot, t)
             self.log.exploration.append((t, out))
             self.log.exploration_events += out.events
+
+    def _move(self, frame: Frame, robot: Pose, t: float) -> list[PlannerEvent]:
+        self.move.on_frame(frame)
+        st = self.move.subtask
+        if st is None or st.type != "move":
+            return []
+        out = self.move.step(robot, t)
+        # kept for viz: a STOP ends the subtask and the next dispatch resets the core in this same frame
+        self.move_view = (self.move.snapshot(), self.move.last_image)
+        self.log.move.append((t, out))
+        self.log.move_records += self.move.pop_records()
+        return out.events
 
     def run(self, tasks: list[TaskSpec]) -> RunLog:
         pending = sorted(tasks, key=lambda x: x.start_offset_s)
@@ -142,11 +167,12 @@ class SystemRuntime:
             self.log.trajectory_xy.append(frame.T_map_base[:2, 3].copy())
             if self.exploration is not None:
                 self._explore(res, info, robot, t)
+            move_events = self._move(frame, robot, t) if self.move is not None else []
             self.log.perception_ms.append(1e3 * (b - a))
             self.log.mapping_ms.append(1e3 * (c - b))
             self.log.memory_ms.append(1e3 * (d - c))
             self.log.exploration_ms.append(1e3 * (time.perf_counter() - d))
-            events = self.bag_sim.step(robot, t) + self.planner.poll_internal(t)
+            events = self.bag_sim.step(robot, t) + move_events + self.planner.poll_internal(t)
             for e in events:
                 self.planner.on_event(e)
             self.log.events += events

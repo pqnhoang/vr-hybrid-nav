@@ -6,7 +6,7 @@ Targets and their status (pending / exploring: not found yet; verified: on the w
 {% for t in targets %}- {{ t.name }}: {{ t.status }}{% if t.node_id is not none %} (memory #{{ t.node_id }}){% endif %}, failed attempts {{ t.attempts }}{% if t.notes %}; {{ t.notes }}{% endif %}
 {% endfor %}
 Finished subtasks (oldest first):
-{% for h in history %}{{ loop.index }}. {{ h.type }} "{{ h.target }}"{% if h.node_id is not none %} #{{ h.node_id }}{% endif %} -> {{ h.outcome }}
+{% for h in history %}{{ loop.index }}. {{ h.type }} "{{ h.target }}"{% if h.get("instruction") %} ("{{ h.instruction }}"){% endif %}{% if h.node_id is not none %} #{{ h.node_id }}{% endif %} -> {{ h.outcome }}
 {% else %}none
 {% endfor %}
 Last event: {{ last_event }}
@@ -18,7 +18,8 @@ Best-view images of {{ n_images }} remembered objects that may be relevant are a
 {% endif %}
 Decide the next subtasks for the targets that are not reported or failed:
 - If a remembered object #id plausibly IS a target, plan {"type": "goto", "target": <name>, "node_id": <id>}. It will be verified before the robot moves.
-- Otherwise plan {"type": "explore", "target": <name>, "room_hint": <room type or null>}.
+- Otherwise plan {"type": "explore", "target": <name>, "room_hint": <room type or null>}.{% if move %}
+- Routes (parts of the instruction that describe a route or a place relative to the robot, not an object): plan {"type": "move", "target": "<short label>", "instruction": "<the remaining route as one imperative sentence>"} for a route part that is not finished yet. A move that ended with "reached" is done; a failed one may be retried with a clearer instruction or given up. Routes are not targets. When no target is pending and the route is complete (or given up), set "task_done" to true.{% endif %}
 - If a target is clearly not in this environment or keeps failing, mark it failed in target_updates with a short reason.
 - Set "task_done" to true only when every target is reported or failed. A target with status pending, exploring or verified still needs a subtask.
 

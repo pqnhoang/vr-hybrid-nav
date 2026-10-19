@@ -4,7 +4,8 @@ the robot path is fixed by the bag.
 - `oracle`: `goto` -> `reached` after `oracle_delay_s`; `explore` -> no events.
 - `trajectory`: `goto` -> `reached` the first time the bag trajectory comes within
   `reach_radius_m` of the goal after dispatch.
-`finish(t)` at bag end: an open `goto` -> `nav_failed`, an open `explore` -> `no_frontier`.
+`finish(t)` at bag end: an open `goto` -> `nav_failed`, an open `explore` -> `no_frontier`, an open
+`move` -> `timeout` (move events otherwise come from MoveCore).
 """
 from __future__ import annotations
 
@@ -63,5 +64,5 @@ class BagEventSim:
         if self.current is None or self.done:
             return []
         self.done = True
-        kind = "nav_failed" if self.current.type == "goto" else "no_frontier"
+        kind = {"goto": "nav_failed", "move": "timeout"}.get(self.current.type, "no_frontier")
         return [self._event(kind, t, source="bag_event_sim", reason="bag ended")]

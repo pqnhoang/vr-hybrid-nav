@@ -1,4 +1,8 @@
-"""Draw detector boxes once for the ROS camera topic and optional JPEG snapshots."""
+"""Draw detector boxes once for the ROS camera topic and optional JPEG snapshots.
+
+During a `move` subtask the last DualVLN S2 cycle is drawn too: its pixel goal (in this camera's raw
+pixels, `projection.uv`; it was asked on an earlier frame) and a line with the S2 texts and decision.
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -38,18 +42,50 @@ def _planner_lines(state, reasoning: str) -> list[str]:
     if state.fsm == "EXECUTING" and st is not None:
         mode = f"{st.type.upper()} {st.target}" + (f" #{st.node_id}" if st.node_id is not None else "")
     why = ("Waiting for planner decision" if state.fsm in ("DECOMPOSING", "REPLANNING") else
-           state.done_reason if state.fsm in ("DONE", "FAILED") else reasoning)
+           state.done_reason if state.fsm in ("DONE", "FAILED") else
+           f"route: {st.instruction}" if st is not None and st.type == "move" else reasoning)
     return [f"Task: {state.instruction or 'Awaiting instruction'}",
             f"Mode: {mode}", f"Reason: {why or 'Waiting for decision'}"]
 
 
-def annotate_detections(result, state=None, reasoning: str = "") -> np.ndarray:
-    """Return one image for both the ROS camera topic and saved camera JPEGs."""
+MOVE_COLOR = (170, 0, 220)                       # BGR magenta, as in vlnav/move/viz.py
+ARROWS = {"↑": "^", "←": "<", "→": ">", "↓": "v"}
+
+
+def _move_line(move: dict) -> str:
+    texts = " | ".join(("LD " if e["look_down"] else "") + "".join(ARROWS.get(c, c) for c in e["text"])
+                       for e in move.get("exchanges", []))
+    why = f" ({move['reason']})" if move.get("reason") else ""
+    return f"S2 #{move.get('k')}: {texts or '-'} -> {move.get('decision')}{why}"
+
+
+def _move_pixel(image: np.ndarray, move: dict) -> None:
+    uv = (move.get("projection") or {}).get("uv")
+    if uv is None:
+        return
+    h, w = image.shape[:2]
+    x, y = int(round(uv[0])), int(round(uv[1]))
+    if not (0 <= x < w and 0 <= y < h):
+        return
+    r = max(8, w // 80)
+    cv2.circle(image, (x, y), r + 2, (255, 255, 255), 4, cv2.LINE_AA)
+    cv2.circle(image, (x, y), r, MOVE_COLOR, 3, cv2.LINE_AA)
+    cv2.drawMarker(image, (x, y), MOVE_COLOR, cv2.MARKER_CROSS, 2 * r, 3, cv2.LINE_AA)
+    cv2.putText(image, "S2 goal", (x + r + 6, y - r), cv2.FONT_HERSHEY_SIMPLEX, max(.5, w / 2400),
+                MOVE_COLOR, 2, cv2.LINE_AA)
+
+
+def annotate_detections(result, state=None, reasoning: str = "", move: dict | None = None) -> np.ndarray:
+    """Return one image for both the ROS camera topic and saved camera JPEGs.
+
+    `move`: record of the last S2 cycle (`MoveCore.snapshot()["last"]`) while a move subtask runs."""
     image = cv2.cvtColor(result.frame.rgb, cv2.COLOR_RGB2BGR)
     relevant = set(result.relevant_idx)
     for i, det in enumerate(result.detections):
         color = (0, 200, 255) if i in relevant else (255, 220, 0)
         _box(image, det.bbox, f"{det.label} {det.score:.2f}", color)
+    if move is not None:
+        _move_pixel(image, move)
     h, w = image.shape[:2]
     if state is not None and w >= 240 and h >= 110:
         font = cv2.FONT_HERSHEY_SIMPLEX
@@ -57,14 +93,15 @@ def annotate_detections(result, state=None, reasoning: str = "") -> np.ndarray:
         thickness = 2 if scale >= .9 else 1
         (_, font_h), baseline = cv2.getTextSize("Ag", font, scale, thickness)
         line_h, pad = font_h + baseline + 5, 8
-        panel_h = 2 * pad + 3 * line_h
+        lines = _planner_lines(state, reasoning) + ([_move_line(move)] if move is not None else [])
+        panel_h = 2 * pad + len(lines) * line_h
         panel = image[:panel_h]
         dark = np.full_like(panel, (18, 18, 18))
         cv2.addWeighted(dark, .9, panel, .1, 0, panel)
-        for i, line in enumerate(_planner_lines(state, reasoning)):
+        for i, line in enumerate(lines):
+            color = (0, 200, 255) if i == 1 else (255, 120, 240) if i == 3 else (255, 255, 255)
             cv2.putText(image, _fit(line, w - 2 * pad, font, scale, thickness),
-                        (pad, pad + font_h + i * line_h), font, scale,
-                        (0, 200, 255) if i == 1 else (255, 255, 255), thickness, cv2.LINE_AA)
+                        (pad, pad + font_h + i * line_h), font, scale, color, thickness, cv2.LINE_AA)
     return image
 
 

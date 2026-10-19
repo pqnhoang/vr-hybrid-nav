@@ -59,17 +59,21 @@ def goto(name, node):
     return {"type": "goto", "target": name, "node_id": node, "room_hint": None}
 
 
+def move(label, instruction):
+    return {"type": "move", "target": label, "instruction": instruction, "node_id": None, "room_hint": None}
+
+
 def verify(choice, conf=0.9):
     return {"reasoning": "ok", "choice": choice, "confidence": conf}
 
 
-def make_planner(tmp_path, router: Router, blocking=True, mem=None, **over):
+def make_planner(tmp_path, router: Router, blocking=True, mem=None, move=False, **over):
     pcfg = load_planner_config(overrides={"blocking": blocking, "decision_log": str(tmp_path / "decisions.jsonl"),
                                           **over})
     vlm = MockVLMClient(router)
     mem = mem or memory(tmp_path)
     acq = TargetAcquirer(acq_cfg(), matcher(), vlm)
-    return PlannerCore(pcfg, mem, acq, vlm, matcher()), mem
+    return PlannerCore(pcfg, mem, acq, vlm, matcher(), move_enabled=move), mem
 
 
 def event(planner, kind, t, **payload):

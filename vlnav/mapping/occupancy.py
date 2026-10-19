@@ -103,13 +103,20 @@ class OccupancyGrid2D:
 
     def ground_height(self, xy) -> float:
         """Smoothed ground z at a world point (nan if unknown / no ground model)."""
-        if self.ground is None:
-            return float("nan")
-        c = self.world_to_cell(np.asarray(xy, dtype=float)[None])
-        if not self.in_bounds(c)[0]:
-            return float("nan")
-        h = float(self.ground.height(c[:, 1], c[:, 0])[0])
-        return h if np.isfinite(h) else float("nan")
+        return float(self.ground_heights(np.asarray(xy, dtype=float)[None, :2])[0])
+
+    def ground_heights(self, xy: np.ndarray) -> np.ndarray:
+        """`ground_height` for (N, 2) world points in one call."""
+        xy = np.asarray(xy, dtype=float).reshape(-1, 2)
+        out = np.full(len(xy), np.nan)
+        if self.ground is None or not len(xy):
+            return out
+        c = self.world_to_cell(xy)
+        ok = self.in_bounds(c)
+        if ok.any():
+            h = self.ground.height(c[ok, 1], c[ok, 0]).astype(float)
+            out[ok] = np.where(np.isfinite(h), h, np.nan)
+        return out
 
     # ---------------------------------------------------------------------------- writing
     def set_array(self, arr: np.ndarray, t: float) -> UpdateInfo:

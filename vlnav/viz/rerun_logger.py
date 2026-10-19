@@ -60,10 +60,11 @@ def load_viz_config(path: str | Path = CONFIG_DIR / "viz.yaml", overrides=None) 
     return VizConfig.model_validate(deep_merge(load_yaml(path), overrides))
 
 
-def blueprint(memory: bool = True, planner: bool = True, exploration: bool = False) -> rrb.Blueprint:
+def blueprint(memory: bool = True, planner: bool = True, exploration: bool = False,
+              move: bool = False) -> rrb.Blueprint:
     """Only the views the run logs: `memory` (memory size, latest best view, occupancy + rooms,
     memory events), `planner` (task, planner log), `exploration` (top-down view as the first, active
-    tab + its log)."""
+    tab + its log), `move` (DualVLN view + map of move subtasks, next to the exploration tab)."""
     tabs = [rrb.TimeSeriesView(origin="metrics/timing", name="timing (ms)"),
             rrb.TimeSeriesView(origin="metrics/perception", name="detections")]
     logs = []
@@ -78,6 +79,8 @@ def blueprint(memory: bool = True, planner: bool = True, exploration: bool = Fal
     if exploration:
         tabs.insert(0, rrb.Spatial2DView(origin="exploration/view", name="exploration (top-down)"))
         logs.insert(0, rrb.TextLogView(origin="exploration/log", name="exploration"))
+    if move:
+        tabs.insert(int(exploration), rrb.Spatial2DView(origin="move/view", name="move (DualVLN)"))
     return rrb.Blueprint(
         rrb.Horizontal(
             rrb.Spatial3DView(origin="world", name="3D: map, memory, camera",
@@ -135,7 +138,8 @@ def ensure_web_server(grpc_port: int, web_port: int, memory_limit: str, log_path
 
 def start(app_id: str, sinks: list[str], save_path: str | None, web_port: int, grpc_port: int,
           host: str, server_memory_limit: str = "4GB", recording_name: str | None = None,
-          memory: bool = True, planner: bool = True, exploration: bool = False) -> str | None:
+          memory: bool = True, planner: bool = True, exploration: bool = False,
+          move: bool = False) -> str | None:
     """Start the recording with the requested sinks; returns the web viewer URL when serving.
     `recording_name` (e.g. the task instruction) tells recordings apart in one viewer."""
     rr.init(app_id)
@@ -154,7 +158,7 @@ def start(app_id: str, sinks: list[str], save_path: str | None, web_port: int, g
             raise ValueError("save sink needs a path")
         Path(save_path).parent.mkdir(parents=True, exist_ok=True)
         targets.append(rr.FileSink(save_path))
-    bp = blueprint(memory, planner, exploration)
+    bp = blueprint(memory, planner, exploration, move)
     rr.set_sinks(*targets, default_blueprint=bp)
     if recording_name:
         rr.send_recording_name(recording_name)
@@ -269,6 +273,10 @@ class RerunLogger:
             rr.log("map/robot", rr.Points2D(px(self.traj[-1][:2])[None] * s, radii=6, colors=(80, 140, 255)))
 
     # ----------------------------------------------------------------------------- exploration
+    def log_move(self, img: np.ndarray) -> None:
+        """Move-subtask debug image (move/viz.py): DualVLN view with the pixel goal + map with the ray."""
+        rr.log("move/view", _jpeg(img, 90))
+
     def log_exploration(self, img: np.ndarray, view, snap: dict, grid) -> None:
         """Top-down debug image (exploration/viz.py) + hover data for frontier / instance points;
         frontier points, goal and path in 3D at floor height; goal changes and events as text."""

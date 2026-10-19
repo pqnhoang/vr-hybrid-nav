@@ -1,0 +1,59 @@
+# Planner open-loop GT with route (move) subtasks for vr_h3_2_calib_1 (TASK_move_subtask.md M5).
+# Routes are taken from eval/move/cases_vr_h3_2.yaml (what the recorded robot does after start_t);
+# objects come from gt_vr_h3_2.yaml. Landmarks inside a route ("near the plant", "past the beige
+# sofa") must not become targets. c01 / c02 are object-only controls: no route may be planned.
+# gt_order: expected decomposition order, "route" for a move subtask (metrics.py).
+objects_from: gt_vr_h3_2.yaml
+tasks:
+- id: r01
+  category: route_only
+  start_t: 32.0
+  instruction: Walk along the white path next to the colorful painted wall and stop at the end of the corridor near the plant.
+  gt_targets: {}
+  gt_order: [route]
+  aliases: {}
+- id: r02
+  category: route_then_object
+  start_t: 32.0
+  instruction: Walk along the white path next to the colorful painted wall to the end of the corridor, then find a sofa where I can sit.
+  gt_targets:
+    sofa: [sofa_4, sofa_7, sofa_179, sofa_188, sofa_226, sofa_436]
+  gt_order: [route, sofa]
+  aliases:
+    sofa: [couch, settee]
+- id: r03
+  category: landmark_route_then_object
+  start_t: 0.0
+  instruction: Walk past the beige sofa on your left and stop near the high bar chairs by the window, then take me to an armchair.
+  gt_targets:
+    armchair: [armchair_32, armchair_197, armchair_215, armchair_8]
+  gt_order: [route, armchair]
+  aliases:
+    armchair: [arm chair, lounge chair]
+- id: r04
+  category: object_then_route
+  start_t: 0.0
+  instruction: First find me a printer, then walk back along the white path past the colorful wall to the dining tables.
+  gt_targets:
+    printer: [printer_224, printer_234]
+  gt_order: [printer, route]
+  aliases:
+    printer: [copier, printing machine]
+- id: c01
+  category: control_implicit
+  start_t: 0.0
+  instruction: I need a paper copy of my boarding pass before I leave for the airport.
+  gt_targets:
+    printer: [printer_224, printer_234]
+  gt_order: [printer]
+  aliases:
+    printer: [copier, printing machine]
+- id: c02
+  category: control_implicit
+  start_t: 0.0
+  instruction: Where can I watch the football match tonight?
+  gt_targets:
+    tv: [tv_174, tv_416]
+  gt_order: [tv]
+  aliases:
+    tv: [television, tv screen, television set]

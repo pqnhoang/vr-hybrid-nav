@@ -55,6 +55,15 @@ Visualization Manager:
         History Policy: Keep Last
         Depth: 1
     - Class: rviz_default_plugins/MarkerArray
+      Name: Move (DualVLN ray)
+      Enabled: true
+      Topic:
+        Value: /move/markers
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+    - Class: rviz_default_plugins/MarkerArray
       Name: Selected goal
       Enabled: true
       Topic:

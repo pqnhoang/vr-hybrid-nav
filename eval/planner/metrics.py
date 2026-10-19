@@ -5,6 +5,13 @@ similarity or `aliases`), report precision (report within `report_radius_m` of a
 its target), task success (every present GT target correctly reported, no wrong report, no report
 for absent targets), false-commit rate (goto to an object not near a GT instance of the target),
 time to first correct report, VLM calls and latency.
+
+Move subtasks (TASK_move_subtask.md M5): a task may give `gt_order`, the expected order of the
+decomposition, with "route" for a `move` subtask and GT target keys otherwise (e.g. [route, sofa]).
+`routes_ok`: the decomposition has as many move subtasks as `gt_order` has routes; `order_ok`: the
+decomposed sequence (moves -> "route", targets mapped to GT keys, repeats merged) equals `gt_order`.
+With `gt_order`, success also needs `routes_ok`. A GT file may take its objects from another one
+(`objects_from`).
 """
 from __future__ import annotations
 
@@ -38,6 +45,33 @@ class TargetMapper:
         return best if best is not None and self.sim(n, best) >= self.thr else None
 
 
+def load_gt(path: str | Path) -> dict:
+    path = Path(path)
+    gt = yaml.safe_load(path.read_text())
+    if "objects_from" in gt:
+        gt["objects"] = yaml.safe_load((path.parent / gt["objects_from"]).read_text())["objects"]
+    return gt
+
+
+def _route_metrics(task: dict, lines: list[dict], summary: dict, mapped: dict) -> dict:
+    dec = [x for x in lines if x["kind"] == "decompose"]
+    plan = dec[-1].get("plan") or [] if dec else []
+    seq = []
+    for p in plan:
+        key = "route" if p["type"] == "move" else (mapped.get(p["target"]) or f"?{p['target']}")
+        if not seq or seq[-1] != key:
+            seq.append(key)
+    out = {"routes_planned": sum(p["type"] == "move" for p in plan),
+           "routes_dispatched": sum(d["type"] == "move" for d in summary["dispatched"]),
+           "route_outcomes": [h["outcome"] for h in summary["final_state"].get("history", [])
+                              if h["type"] == "move"],
+           "decomposed_order": seq, "routes_ok": None, "order_ok": None}
+    if "gt_order" in task:
+        out["routes_ok"] = out["routes_planned"] == task["gt_order"].count("route")
+        out["order_ok"] = seq == task["gt_order"]
+    return out
+
+
 def task_metrics(run_dir: Path, task: dict, gt_objects: dict, radius: float, sim=None, thr=0.88) -> dict:
     gt_targets = task["gt_targets"]
     mapper = TargetMapper(gt_targets, task.get("aliases", {}), sim, thr)
@@ -68,9 +102,10 @@ def task_metrics(run_dir: Path, task: dict, gt_objects: dict, radius: float, sim
     present = [k for k, v in gt_targets.items() if v]
     absent = [k for k, v in gt_targets.items() if not v]
     wrong = [r for r, ok in zip(reports, rep_ok) if not ok]
-    success = all(k in correct_keys for k in present) and not wrong
-    first_ok = min((r["stamp"] for r, ok in zip(reports, rep_ok) if ok), default=None)
     lines = [json.loads(x) for x in (run_dir / "decisions.jsonl").read_text().splitlines()]
+    route = _route_metrics(task, lines, summary, mapped)
+    success = all(k in correct_keys for k in present) and not wrong and route["routes_ok"] is not False
+    first_ok = min((r["stamp"] for r, ok in zip(reports, rep_ok) if ok), default=None)
     q_lat = [x["query"]["vlm_latency_s"] for x in lines if x.get("query") and x["query"].get("raw")]
     acq = [json.loads(x) for x in (run_dir / "acquisition_debug.jsonl").read_text().splitlines()] \
         if (run_dir / "acquisition_debug.jsonl").exists() else []
@@ -78,7 +113,8 @@ def task_metrics(run_dir: Path, task: dict, gt_objects: dict, radius: float, sim
     return {
         "task": task["id"], "category": task.get("category"), "fsm": summary["final_state"]["fsm"],
         "decomposed": decided, "mapped": mapped,
-        "target_precision": float(np.mean([v is not None for v in mapped.values()])) if mapped else 0.0,
+        "target_precision": (float(np.mean([v is not None for v in mapped.values()])) if mapped
+                             else float(not gt_targets)),              # a route-only task has no targets
         "target_recall": float(np.mean([k in mapped.values() for k in gt_targets])) if gt_targets else 1.0,
         "reports": len(reports), "report_precision": float(np.mean(rep_ok)) if reports else None,
         "success": bool(success),
@@ -89,6 +125,7 @@ def task_metrics(run_dir: Path, task: dict, gt_objects: dict, radius: float, sim
         "vlm_calls": len(q_lat) + len(acq),
         "vlm_latency_mean_s": float(np.mean(q_lat + a_lat)) if q_lat + a_lat else None,
         "vlm_latency_p95_s": float(np.percentile(q_lat + a_lat, 95)) if q_lat + a_lat else None,
+        **route,
     }
 
 
@@ -99,7 +136,8 @@ def aggregate(rows: list[dict]) -> dict:
     return {"tasks": len(rows), "task_success_rate": mean("success"), "target_precision": mean("target_precision"),
             "target_recall": mean("target_recall"), "report_precision": mean("report_precision"),
             "false_commit_rate": mean("false_commit_rate"), "time_to_correct_report_s": mean("time_to_correct_report_s"),
-            "vlm_calls_per_task": mean("vlm_calls"), "vlm_latency_mean_s": mean("vlm_latency_mean_s")}
+            "vlm_calls_per_task": mean("vlm_calls"), "vlm_latency_mean_s": mean("vlm_latency_mean_s"),
+            "routes_ok": mean("routes_ok"), "order_ok": mean("order_ok")}
 
 
 def main():
@@ -109,7 +147,7 @@ def main():
     ap.add_argument("--report-radius-m", type=float, default=1.0)
     ap.add_argument("--no-embedder", action="store_true", help="map target names by aliases only")
     args = ap.parse_args()
-    gt = yaml.safe_load(Path(args.gt).read_text())
+    gt = load_gt(args.gt)
     objs = {o["gt_id"]: o for o in gt["objects"]}
     sim, thr = None, 0.88
     if not args.no_embedder:

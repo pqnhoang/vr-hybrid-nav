@@ -1,0 +1,28 @@
+# Mode A full system with move subtasks on vr_h3_2_calib_1 (TASK_move_subtask.md M5): as
+# vr_h3_2_system.yaml, plus `move` route subtasks on DualVLN (scripts/serve_dualvln_s2.py on GPU 0).
+# Run with scripts/run_system_bag.py --enable-move.
+memory:
+  rooms: {enabled: true}                        # indoor single floor: rooms from the occupancy grid
+  checkpoints: {checkpoint_every_s: 10}
+  gating: {max_obs_range_m: 10.0}
+perception:
+  detector: {cache_dir: runs/det_cache_vr_h3_2, device: "cuda:1"}   # GPU 0 holds DualVLN; GPU 1 Qwen3-VL
+  vocabulary: {generic_vocab_file: configs/vocab/office.txt}
+  lifting: {max_depth_m: 10.0}
+planner:
+  blocking: true                                # offline replay: VLM calls block (deterministic)
+  explore_timeout_s: 60
+  goto_timeout_s: 40
+vlm:
+  cache_dir: runs/vlm_cache                     # reruns with identical prompts reuse replies
+sim:
+  bag_event_sim: {mode: trajectory, reach_radius_m: 1.5}
+exploration:                                    # shadow mode (SYSTEM §6, run mode A)
+  selection: {stuck_detection: false}           # the recorded robot does not follow our goals
+  frontier: {min_cluster_cells: 10}             # 0.5 m at 5 cm cells: drops LiDAR shadows behind furniture
+move:
+  s2: {cache_dir: runs/s2_cache_vr_h3_2}
+bag: {}
+tasks:
+  - instruction: "Walk along the white path next to the colorful painted wall to the end of the corridor, then find a potted plant."
+    start_offset_s: 32.0

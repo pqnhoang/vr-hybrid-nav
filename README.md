@@ -6,6 +6,8 @@ A re-implementation of **VL-Nav** ([arXiv:2502.00931](https://arxiv.org/abs/2502
   memory, and checks the target in images before reporting it.
 - **Unified memory**: a scene graph of objects and rooms, with a best-view image per object.
 - **Exploration**: scores frontier points and object instances (paper Eq. 1–8) and picks the next goal.
+- **Move (optional)**: route parts of an instruction ("walk to the end of the corridor") run on
+  DualVLN; its pixel goals are projected onto the occupancy map ([plans/TASK_move_subtask.md](plans/TASK_move_subtask.md)).
 
 It runs offline on recorded ROS 2 bags (no ROS install needed), or live as a ROS 2 node
 ([docs/ros2.md](docs/ros2.md)).
@@ -88,6 +90,8 @@ Prefix every command with `PYTHONPATH=. $PY`. Set `BAG=configs/bags/vr_h3_2_cali
 | Memory only (objects + rooms) | `scripts/run_memory_bag.py --bag-config $BAG --run-config configs/runs/vr_h3_2_memory.yaml --run-dir runs/mem --label-rooms --rerun save` | only with `--label-rooms` |
 | Full system | `scripts/run_system_bag.py --bag-config $BAG --run-config configs/runs/vr_h3_2_system.yaml --run-dir runs/sys --rerun save --instruction "I need to print a document, then sit somewhere and watch TV."` | yes |
 | Planner eval (5 tasks with ground truth) | `eval/planner/run_openloop.py --bag-config $BAG --run-config configs/runs/vr_h3_2_system.yaml --gt eval/planner/gt_vr_h3_2.yaml --out runs/openloop` | yes |
+| Full system with move subtasks (DualVLN) | start `scripts/serve_dualvln_s2.py` (InternNav env, GPU 0), then `scripts/run_system_bag.py --bag-config $BAG --run-config configs/runs/vr_h3_2_system_move.yaml --run-dir runs/sys_move --enable-move [--rerun save]` (outputs: `move/shadow.mp4`, `move/frames/` one JPEG per S2 cycle, `move/move_log.jsonl`; Rerun tab "move (DualVLN)"); planner eval: `eval/planner/run_openloop.py ... --run-config configs/runs/vr_h3_2_system_move.yaml --gt eval/planner/gt_vr_h3_2_move.yaml --enable-move` | yes |
+| Move subtask alone (shadow eval) | `scripts/run_move_bag.py --cases eval/move/cases_vr_h3_2.yaml --run-dir runs/move_vr_h3_2`, then `scripts/inspect_move.py runs/move_vr_h3_2/<case>` | DualVLN only |
 | Acquisition eval | `eval/acquisition/make_fixture.py --from-scene-graph runs/mem/memory/final --image-root runs/mem/memory/images --out runs/fixtures/mem --confirmed-only --link`, then `eval/acquisition/eval_acquisition.py --fixture runs/fixtures/mem/memory.json --cases eval/acquisition/cases_vr_h3_2.yaml --out runs/eval_acq/default.csv` | yes (or `--no-vlm`) |
 | Export a map | `scripts/export_map.py --run-dir runs/mem` | no |
 | Check LiDAR ↔ camera calibration | `scripts/check_extrinsics.py --bag-config $BAG --out-dir runs/extr` | no |
@@ -131,6 +135,8 @@ Settings come from three layers. Each one overrides the one before it:
 
 GPUs: perception runs on `cuda:0` (`configs/perception.yaml`) and Qwen3-VL on GPU 1
 (`configs/vlm.yaml` → `local.devices`). Set `devices: [0, 1]` to split the model across both GPUs.
+With move subtasks, DualVLN takes GPU 0 and perception moves to GPU 1 next to Qwen3-VL
+(`configs/runs/vr_h3_2_system_move.yaml`).
 To use a vLLM server instead, run `vllm serve checkpoint/vlm/Qwen3-VL-8B-Instruct --port 8000` and set `backend: openai`.
 
 ## 4. Debug

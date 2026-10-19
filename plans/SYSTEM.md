@@ -143,12 +143,13 @@ class RoomNode(BaseModel):
 class Subtask(BaseModel):         # planner -> exploration
     id: int
     task_id: int
-    type: Literal["explore", "goto", "stop"]
-    target: str
+    type: Literal["explore", "goto", "stop", "move"]
+    target: str                             # move: short label of the route, e.g. "corridor end"
     detector_prompts: list[str] = []
     room_hint: str | None = None
     node_id: int | None = None
     goal_pose: Pose | None = None           # required for goto
+    instruction: str | None = None          # required for move: route text sent to DualVLN
 
 class PlannerEvent(BaseModel):    # exploration / sim / planner-internal -> planner FSM
     type: Literal["new_task", "reached", "no_frontier", "nav_failed",
@@ -256,6 +257,7 @@ Down (planner → core):
 | `Subtask(type="explore", detector_prompts, room_hint)` | Exploration resets semantic state, sets active prompts, explores with NeSy scoring. |
 | `Subtask(type="goto", goal_pose, node_id)` | Exploration bypasses scoring and drives directly to `goal_pose`. |
 | `Subtask(type="stop")` | Hold position; clear active prompts except generic vocab. |
+| `Subtask(type="move", instruction)` | Only with `move.enabled` (TASK_move_subtask.md). Exploration holds; `MoveCore` drives to DualVLN pixel goals projected on the grid. Not a target: no `TargetEntry`, no `TargetReport`. |
 | detector prompts | Always sent together with the subtask; perception switches vocab **before** exploration starts using the new subtask. |
 
 Up (core/sim → planner):
@@ -265,12 +267,14 @@ Up (core/sim → planner):
 | `reached` | exploration | `goto` goal reached within `goto_reach_radius_m` |
 | `nav_failed` | exploration | `goto` goal unreachable after `max_plan_failures` |
 | `no_frontier` | exploration | `explore`: no frontier and no active instance point for `no_frontier_patience_s` |
+| `reached`, `nav_failed`, `timeout` | move (`MoveCore`) | `move`: DualVLN STOP (`reason: vln_stop`); `max_unreachable` consecutive unusable goals; `move_timeout_s` |
 | `candidate_found`, `timeout` | planner (internal) | see planner spec |
 | `new_task`, `abort` | user / launcher | — |
 
 Every event carries `task_id` and `subtask_id`; the planner discards events whose ids are stale.
 In bag open-loop mode `reached`/`no_frontier` come from `sim/bag_event_sim.py` instead of
-exploration (Section 6).
+exploration (Section 6). `move` events always come from `MoveCore`: the bag simulator has no notion
+of where a route ends (it maps an open `move` to `timeout` at bag end).
 
 ## 6. Run modes
 

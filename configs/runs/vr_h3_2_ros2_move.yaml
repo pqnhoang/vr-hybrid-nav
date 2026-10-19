@@ -1,0 +1,20 @@
+# Live equivalent of vr_h3_2_system_move.yaml: vr_h3_2_ros2.yaml plus `move` route subtasks on DualVLN
+# (TASK_move_subtask.md M6). Start scripts/serve_dualvln_s2.py (InternNav env, GPU 0) before the node.
+memory:
+  rooms: {enabled: true}
+  checkpoints: {checkpoint_every_s: 10}
+  gating: {max_obs_range_m: 10.0}
+perception:
+  detector: {cache_dir: null, device: "cuda:1"}   # GPU 0 holds DualVLN; GPU 1 Qwen3-VL
+  vocabulary: {generic_vocab_file: configs/vocab/office.txt}
+  lifting: {max_depth_m: 10.0}
+planner:
+  blocking: false
+  explore_timeout_s: 60
+  goto_timeout_s: 40
+exploration:
+  selection: {stuck_detection: true}
+  frontier: {min_cluster_cells: 10}
+move:
+  enabled: true
+  s2: {base_url: "http://localhost:8001"}   # the node forces s2.blocking: false

@@ -4,7 +4,8 @@ from types import SimpleNamespace
 import cv2
 import numpy as np
 
-from vlnav_ros.camera_images import CameraImageWriter, _fit, _planner_lines, annotate_detections
+from vlnav_ros.camera_images import (MOVE_COLOR, CameraImageWriter, _fit, _move_line, _planner_lines,
+                                     annotate_detections)
 
 
 def test_camera_detections_and_selected_goal_are_labeled(tmp_path):
@@ -49,3 +50,22 @@ def test_camera_overlay_shows_current_task_mode_and_reason():
     assert _planner_lines(SimpleNamespace(**{**vars(state), "fsm": "REPLANNING", "current": None}),
                           "old reason")[1:] == ["Mode: REPLAN", "Reason: Waiting for planner decision"]
     assert _fit("Task: " + "long text " * 60, 300, cv2.FONT_HERSHEY_SIMPLEX, .5).endswith("...")
+
+
+def test_camera_overlay_shows_s2_pixel_goal_and_texts_during_move():
+    rgb = np.full((480, 640, 3), 255, np.uint8)
+    result = SimpleNamespace(frame=SimpleNamespace(rgb=rgb), detections=[], relevant_idx=[])
+    state = SimpleNamespace(fsm="EXECUTING", instruction="Walk to the door",
+                            current=SimpleNamespace(type="move", target="door", node_id=None,
+                                                    instruction="walk to the door"), done_reason=None)
+    snap = {"active": True, "last": {"k": 3, "decision": "new_goal", "reason": None,
+                               "exchanges": [{"look_down": False, "text": "↓"}, {"look_down": True, "text": "320 400"}],
+                               "projection": {"uv": [200.0, 150.0], "cam_xy": [-1.0, -1.0], "p_map": [0.5, 0.5, 0.0],
+                                              "floor_xy": [0.5, 0.5]}}}
+    assert _planner_lines(state, "r")[2] == "Reason: route: walk to the door"
+    assert _move_line(snap["last"]) == "S2 #3: v | LD 320 400 -> new_goal"
+    image = annotate_detections(result, state, "r", snap["last"])
+    assert tuple(image[150, 200 + 8]) == MOVE_COLOR                  # ring around the projected pixel
+    assert (image[150:, 400:] == 255).all()
+    plain = annotate_detections(result, state, "r")
+    assert (image[:140] != plain[:140]).any()                         # fourth (S2) panel line

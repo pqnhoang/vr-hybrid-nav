@@ -13,6 +13,7 @@ from typing import Protocol
 
 import cv2
 import numpy as np
+import torch
 
 from vlnav.common.models import Detection2D
 from vlnav.perception.config import CheckpointPaths, DetectorCfg
@@ -127,14 +128,17 @@ class YoloWorldFastSam:
             if cached is not None:
                 return cached
         c = self.cfg
+        # a torch.device, not the string: ultralytics' select_device("cuda:1") sets CUDA_VISIBLE_DEVICES
+        # (ignored once CUDA is initialised) and returns cuda:0, so every GPU id other than 0 was lost
+        dev = torch.device(c.device)
         bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)          # ultralytics expects BGR arrays
         det = self.yolo.predict(bgr, imgsz=c.yolo_imgsz, conf=c.conf, iou=c.iou, max_det=c.max_det,
-                                device=c.device, verbose=False)[0]
+                                device=dev, verbose=False)[0]
         boxes = det.boxes.xyxy.cpu().numpy()
         out: list[Detection2D] = []
         if len(boxes):
             seg = self.fastsam.predict(bgr, imgsz=c.fastsam_imgsz, conf=c.fastsam_conf,
-                                       iou=c.fastsam_iou, retina_masks=True, device=c.device,
+                                       iou=c.fastsam_iou, retina_masks=True, device=dev,
                                        verbose=False)[0]
             masks = (seg.masks.data.cpu().numpy() > 0.5) if seg.masks is not None else \
                 np.zeros((0, *rgb.shape[:2]), bool)

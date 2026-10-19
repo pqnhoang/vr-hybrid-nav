@@ -123,3 +123,32 @@ def navigation_messages(out, hdr: Header, lifetime_s: float):
             m.text = f"GOAL: {out.goal_kind} #{out.goal_id}"
         markers.markers.append(m)
     return goal, point, path, markers
+
+
+def move_messages(snapshot: dict | None, hdr: Header) -> MarkerArray:
+    """Last DualVLN S2 cycle of a move subtask (TASK_move_subtask.md §10.1): the camera ray to the floor
+    (orange line), the projected floor point (orange sphere) and the S2 text. The reachable goal
+    itself is the `selected_goal` of /exploration/markers. DELETEALL alone clears it."""
+    markers = MarkerArray(markers=[Marker(header=hdr, action=Marker.DELETEALL)])
+    last = (snapshot or {}).get("last") or {}
+    proj = last.get("projection") or {}
+    if not (snapshot or {}).get("active") or proj.get("p_map") is None:
+        return markers
+    color = ColorRGBA(r=1.0, g=0.55, b=0.0, a=1.0)
+    end = proj.get("floor_xy") or proj["p_map"][:2]
+    ray = Marker(header=hdr, ns="move_ray", id=0, type=Marker.LINE_STRIP, action=Marker.ADD, color=color)
+    ray.pose.orientation.w = 1.0
+    ray.scale.x = 0.05
+    ray.points = [Point(x=float(proj["cam_xy"][0]), y=float(proj["cam_xy"][1]), z=0.1),
+                  Point(x=float(end[0]), y=float(end[1]), z=0.1)]
+    point = Marker(header=hdr, ns="move_point", id=1, type=Marker.SPHERE, action=Marker.ADD, color=color)
+    point.pose.position = Point(x=float(proj["p_map"][0]), y=float(proj["p_map"][1]), z=0.1)
+    point.pose.orientation.w = 1.0
+    point.scale.x = point.scale.y = point.scale.z = 0.3
+    text = Marker(header=hdr, ns="move_text", id=2, type=Marker.TEXT_VIEW_FACING, action=Marker.ADD, color=color)
+    text.pose.position = Point(x=float(proj["p_map"][0]), y=float(proj["p_map"][1]), z=0.7)
+    text.pose.orientation.w = 1.0
+    text.scale.z = 0.25
+    text.text = f"S2 #{last.get('k')}: " + " | ".join(e["text"] for e in last.get("exchanges", []))
+    markers.markers += [ray, point, text]
+    return markers

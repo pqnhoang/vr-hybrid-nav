@@ -48,3 +48,16 @@ def test_wrong_report_and_absent_target(tmp_path):
     m = task_metrics(d, TASK, GT, radius=1.0)
     assert not m["success"] and m["report_precision"] == 0.0 and m["false_commit_rate"] == 1.0
     assert m["absent_reported"] == []
+
+
+def test_route_order_and_route_only_task(tmp_path):
+    d = run_dir(tmp_path, [], [{"type": "move", "target": "door", "node_id": None}], [])
+    lines = [{"kind": "decompose", "query": {"raw": ["x"], "vlm_latency_s": 1.0},
+              "plan": [{"type": "move", "target": "door"}]}]
+    (d / "decisions.jsonl").write_text("\n".join(json.dumps(x) for x in lines) + "\n")
+    task = {"id": "r", "gt_targets": {}, "gt_order": ["route"]}
+    m = task_metrics(d, task, {}, 1.0)
+    assert (m["routes_planned"], m["routes_dispatched"], m["decomposed_order"]) == (1, 1, ["route"])
+    assert m["routes_ok"] and m["order_ok"] and m["success"] and m["target_precision"] == 1.0
+    m = task_metrics(d, {**task, "gt_order": ["route", "route"]}, {}, 1.0)
+    assert m["routes_ok"] is False and m["success"] is False

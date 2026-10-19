@@ -119,12 +119,13 @@ class Subtask(_Model):
 
     id: int
     task_id: int
-    type: Literal["explore", "goto", "stop"]
-    target: str
+    type: Literal["explore", "goto", "stop", "move"]
+    target: str                                       # move: short label of the route, e.g. "corridor end"
     detector_prompts: list[str] = []
     room_hint: str | None = None
     node_id: int | None = None
     goal_pose: Pose | None = None                     # required for goto
+    instruction: str | None = None                    # required for move: route text sent to DualVLN
 
 
 class PlannerEvent(_Model):

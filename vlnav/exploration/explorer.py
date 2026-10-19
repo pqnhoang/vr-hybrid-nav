@@ -35,7 +35,7 @@ RoomLabelsNear = Callable[[tuple[float, float]], set[str]]     # labels of the r
 
 class ExplorationOutput(BaseModel):
     goal: Pose | None
-    goal_kind: Literal["instance", "frontier", "goto", "hold"]
+    goal_kind: Literal["instance", "frontier", "goto", "hold", "move"]      # move: set by move/core.py
     goal_id: int | None
     path: list[tuple[float, float]] | None
     events: list[PlannerEvent]
@@ -197,7 +197,7 @@ class ExplorationCore:
         self._robot = (x, y, yaw)
         self._scores = []
         st, events = self.subtask, []
-        if st is None or st.type == "stop" or 0 in self.grid.shape:
+        if st is None or st.type in ("stop", "move") or 0 in self.grid.shape:      # move: move/core.py drives
             out = ExplorationOutput(goal=None, goal_kind="hold", goal_id=None, path=None, events=[])
         elif st.type == "goto":
             gp = st.goal_pose

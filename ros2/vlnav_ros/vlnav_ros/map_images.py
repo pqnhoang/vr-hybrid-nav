@@ -15,8 +15,9 @@ class MapImageWriter:
         self.count = max((int(p.stem[6:]) for p in self.directory.glob("frame_*.png")
                           if p.stem[6:].isdigit()), default=0)
 
-    def write(self, map_msg, frontiers, robot, output) -> Path | None:
-        """Save the same map, frontiers, path and goal published for RViz."""
+    def write(self, map_msg, frontiers, robot, output, move: dict | None = None) -> Path | None:
+        """Save the same map, frontiers, path and goal published for RViz. `move`: MoveCore snapshot
+        during a move subtask (the S2 ray and projected floor point are drawn in orange)."""
         width, height = map_msg.info.width, map_msg.info.height
         if not width or not height:
             return None
@@ -49,6 +50,13 @@ class MapImageWriter:
             points = np.asarray([pixel(xy) for xy in output.path], dtype=np.int32)
             if len(points) > 1:
                 cv2.polylines(image, [points], False, (255, 200, 30), 2, cv2.LINE_AA)
+
+        proj = (((move or {}).get("last") or {}).get("projection") or {}) if (move or {}).get("active") else {}
+        if proj.get("p_map") is not None:
+            cv2.line(image, pixel(proj["cam_xy"]), pixel(proj.get("floor_xy") or proj["p_map"]),
+                     (0, 140, 255), 1, cv2.LINE_AA)
+            cv2.circle(image, pixel(proj["p_map"]), max(3, round(.15 / resolution * scale)),
+                       (0, 140, 255), -1, cv2.LINE_AA)
 
         if robot is not None:
             center = pixel(robot.position)

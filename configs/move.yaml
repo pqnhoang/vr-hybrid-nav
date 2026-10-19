@@ -1,0 +1,45 @@
+# Move subtask (TASK_move_subtask.md §11): DualVLN S2 pixel goals projected onto the occupancy grid.
+enabled: false                 # planner emits `move` subtasks only when true (needs the S2 server)
+s2:
+  base_url: http://localhost:8001   # scripts/serve_dualvln_s2.py (InternNav env)
+  timeout_s: 30.0
+  cache_dir: null              # reply cache by request hash, for reproducible bag replays
+  blocking: false              # true: wait for each reply (deterministic bag replay)
+model_input: {resize_w: 384, resize_h: 384, num_history: 8}
+model_view:                    # what DualVLN sees (view.py; M0, docs/design_choices.md)
+  mode: habitat                # habitat: crop to the training hfov / aspect around the principal point, resize | full
+  width: 640                   # Habitat look-down image the model was trained on
+  height: 480
+  hfov_deg: 79.0
+main_pixel_ref: resized        # a pixel on the forward (not look-down) query refers to: resized (384×384) | view
+look_down_mode: same_frame     # same_frame: re-query with the same frame as look-down image | ignore
+max_look_down: 2               # consecutive `↓` before falling back to `ignore`
+history: {step_m: 0.25, step_rad: 0.2618}     # keep a frame per 0.25 m or 15 deg of motion (Habitat step)
+actions: {forward_step_m: 0.25, turn_step_rad: 0.2618, rotate_mode: in_place, rotate_offset_m: 0.3}
+projection:
+  min_down_dz: 0.02            # ray z component below -this to hit the floor
+  base_height_m: null          # floor at the robot = base z - this (robot geometry); null: from the grid ring
+  ground_ring_m: [1.0, 3.0]    # null base_height_m: floor at the robot = median grid ground on this ring
+  ground_min_dist_m: 1.0       # grid ground is wrong next to the robot (LiDAR blind zone): not used closer
+  max_floor_step_m: 0.5        # grid ground farther away used only within this of the robot's floor
+  depth_window_px: 7           # dense depth: median in this square
+  depth_search_px: 15          # sparse (LiDAR) depth: search radius for valid pixels
+  depth_k: 5                   # sparse depth: median of the k nearest valid pixels
+  depth_min_m: 0.3
+  depth_max_m: 12.0
+  depth_margin_m: 0.3          # measured range shorter than floor range by this -> obstacle in the way
+  depth_margin_rel: 0.1        # ... or by this fraction of the floor range (grazing floor, sparse LiDAR)
+  obstacle_backoff_m: 0.4      # goal this far before the measured obstacle
+  min_range_m: 0.3
+  max_range_m: 5.0
+  fallback_range_m: 2.0        # above-horizon pixel without depth: direction-only goal at this range
+goal: {walkback_step_m: 0.2, max_unreachable: 3, switch_dist_m: 0.4}
+loop:
+  requery_radius_m: 0.5
+  requery_period_s: 2.0        # null: stop-and-go (query only when the goal is reached / stalled)
+  stall_s: 5.0
+  stall_dist_m: 0.1
+  rotate_tol_rad: 0.15         # rotation done when |yaw error| below this
+  timeout_s: 120.0
+  max_queries: 60
+viz: {map_px: 640, map_radius_m: 7.0, image_px: 480, video_fps: 4.0}   # map: robot-centered window

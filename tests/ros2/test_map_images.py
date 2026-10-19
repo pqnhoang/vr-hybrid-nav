@@ -39,3 +39,19 @@ def test_map_pngs_show_ros_map_and_current_goal(tmp_path):
     assert not np.any(np.all(cleared == (13, 166, 255), axis=2))
     assert len(list(tmp_path.glob("frame_*.png"))) == 3
     assert MapImageWriter(tmp_path).write(map_msg, frontiers, robot, hold()) == tmp_path / "frame_000004.png"
+
+
+
+def test_map_png_shows_move_ray_and_projected_point(tmp_path):
+    cells = np.zeros((20, 20), np.int8)
+    grid = OccupancyGrid2D.from_array(cells, .2, (-2., -2.))
+    snap = {"active": True, "last": {"k": 3, "decision": "new_goal", "reason": None,
+                               "exchanges": [{"look_down": False, "text": "↓"}, {"look_down": True, "text": "320 400"}],
+                               "projection": {"uv": [200.0, 150.0], "cam_xy": [-1.0, -1.0], "p_map": [0.5, 0.5, 0.0],
+                                              "floor_xy": [0.5, 0.5]}}}
+    writer = MapImageWriter(tmp_path)
+    writer.write(occupancy_message(grid, header("map", 1.)), [], None, hold(), snap)
+    image = cv2.imread(str(tmp_path / "latest.png"))
+    assert np.any(np.all(image == (0, 140, 255), axis=2))
+    writer.write(occupancy_message(grid, header("map", 2.)), [], None, hold(), {**snap, "active": False})
+    assert not np.any(np.all(cv2.imread(str(tmp_path / "latest.png")) == (0, 140, 255), axis=2))

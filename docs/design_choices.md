@@ -484,3 +484,118 @@ behind. Each LiDAR scan is transformed at its acquisition timestamp before windo
 matching BagSource. Selected goals without a reachable path are withheld. An active flag,
 empty paths and marker deletion express cancellation because PoseStamped cannot represent it.
 No velocity commands or autonomous motion controller are added.
+
+## Move subtask (DualVLN S2) [DESIGN]
+
+Plan: [plans/TASK_move_subtask.md](../plans/TASK_move_subtask.md). M0 was run on vr_h3_2_calib_1:
+4 hand-written cases (`eval/move/cases_vr_h3_2.yaml`), a query every 2 s, 37 cycles
+(`scripts/check_dualvln_s2.py`, `runs/m0/`).
+
+- **Server.** `scripts/serve_dualvln_s2.py` runs only S2 (no S1, no depth) in the `internnav` conda env
+  with the upstream InternNav checkout. The FOCA fork needs a `common` module that is not installed.
+  It needs two shims: a `pkg_resources` stub for LongCLIP, and `--aux-ckpt-dir`, because
+  `MODEL_PATH_TO` points at a depth checkpoint that only exists in the FOCA checkout. The server is
+  stateless. The client sends the full conversation for every query, so replies can be cached for bag
+  replays. `pixel_goal_grounding_weight` is newly initialized at load; it belongs to S1 and is unused.
+  A period is appended to instructions that lack one (InternNav's datasets end with one).
+- **Model image (V1).** In Habitat, DualVLN outputs a pixel only on the `↓` image: the raw 640×480,
+  hfov 79° frame of a camera pitched 30° down. The ZED waist camera (1920×1080, hfov ≈ 104°,
+  pitched ≈ 29° down) already looks like that view. Sending the full frame gave pixels in a
+  640×480 range, so they landed in the wrong place. `move/view.py` crops the camera image around the
+  principal point to hfov 79° and 4:3, and resizes it to 640×480. The model sees this view for the
+  current image, the look-down image and history (history is resized to 384×384 as in InternNav).
+  Replies are mapped back with `view.to_camera`. Median distance from the recorded future path:
+  117 px for the view frame, 336 px when read as 384×384 coordinates.
+- **Look-down.** The main query never returned a pixel: `↓` 73%, STOP 16%, `←` ×3–4 otherwise.
+  The look-down query on the same view image always returned a pixel (27/27). So
+  `look_down_mode: same_frame` with `max_look_down: 2`, and one S2 cycle is usually 2 queries.
+  The frame of a pixel on a forward query is unknown (`main_pixel_ref: resized`, unverified).
+- **Placement and latency.** DualVLN uses 15.6 GiB (bf16, flash-attn 2) on GPU 0, next to perception:
+  peak 20.9 of 24.5 GB with both running. Qwen3-VL stays on GPU 1. Measured p50/p95:
+  forward query 390/439 ms, look-down 594/701 ms, so about 1 s per cycle. Cycles run in a worker
+  thread. The reply is projected with the geometry of the frame it was asked on, and replies from
+  an older subtask are dropped.
+  Later runs showed two problems:
+  - The server's allocator cache grew to 19.6 GiB after a few hundred requests. Perception then
+    ran out of memory on GPU 0. The server now calls `torch.cuda.empty_cache()` after every
+    request, which keeps it at 17.4 GB. Latency did not get worse: forward 420/465 ms, look-down
+    634/659 ms on the vr_h3_2 cases.
+  - `detector.device: cuda:1` was silently ignored. Ultralytics' `select_device("cuda:1")` sets
+    `CUDA_VISIBLE_DEVICES`, which has no effect once CUDA is initialised, and returns `cuda:0`.
+    The detector now passes a `torch.device`.
+  Full-system runs with move use `configs/runs/vr_h3_2_system_move.yaml`: DualVLN on GPU 0;
+  perception and Qwen3-VL on GPU 1.
+- **Projection (M2).** Floor-plane projection (ray ∩ floor, no depth) was checked against sensor
+  floor points (`scripts/check_move_projection.py`). Median horizontal error within 4 m: 0.076 m on
+  vr_h3_2 (LiDAR reference) and 0.070 m on bkhn_round1 (D455 depth reference). Depth only clips
+  goals behind obstacles. The floor comes from `projection.floor_fn`, not the raw grid ground: the
+  min-z ground next to the robot holds body points (LiDAR blind zone). With the raw ground, the
+  first cycles of a run hit the "floor" ~1 m short, and bkhn's 0.5–2 m bin had a 0.78 m median
+  (now 0.066 m). The floor is assumed locally flat (one refinement step; steps over 0.5 m are
+  ignored). In bkhn's stairwell p90 stays above 1 m.
+- **Depth margin.** At 6–8 m range the 15 px sparse-LiDAR window picks up nearer floor returns
+  (measured range 0.4–0.9 m short), so a fixed 0.3 m margin falsely clipped 12 of 29 vr_h3_2 goals.
+  The margin is `max(0.3 m, 10% of the floor range)`; 1 clip is left.
+- **Shadow eval (M4).** `scripts/run_move_bag.py`, 8 hand-written cases (`eval/move/cases_*.yaml`),
+  S2 blocking, replies cached in `runs/s2_cache_*`. A terminal event restarts the same instruction,
+  so each whole segment is scored.
+
+  | bag | cycles | pixel → goal | waypoint–path median | < 0.5 m | events |
+  |---|---|---|---|---|---|
+  | vr_h3_2 (4 cases) | 39 | 27/29 (93%) | 0.60 m | 44% | reached 2 |
+  | bkhn_round1 (4 cases) | 104 | 67/83 (81%) | 0.46 m | 52% | reached 4, nav_failed 3 |
+
+  Per-case medians range from 0.17 m (straight corridor, plaza) to 1.3–1.8 m (turns). Turns are
+  the weak spot: after a turn S2 often keeps pointing straight ahead, or answers `←←←←`.
+  Projection takes 0.8–2.8 ms. The goal step (projection + reachability A*) takes 80–90 ms p50.
+  bkhn's 14 `unreachable` replies have one cause: the outdoor grid is speckled with single-cell
+  obstacles (LiDAR noise, people). With 0.3 m inflation every walked-back point is blocked. After
+  a failure the next query is sent on the next frame, so 3 failures happen within 1.5 s and give
+  `nav_failed`. Premature STOPs: the restart hides them in the metrics, but `stop.first_t_rel` shows
+  them (e.g. sofa_to_window stops at 7.2 s of 11 s).
+- **Planner FSM (M5).** A `move` subtask is a route, not a target, so it never creates a
+  `TargetEntry` or a `TargetReport`; its label is free text. The plan's "reached → next subtask" is
+  implemented the way every other subtask ends: the planner replans, and the move's outcome and
+  instruction are in the replan history. The replanner sees what is left of the instruction, so
+  "find X, then walk to Y" works without a subtask queue. Other rules:
+  - The decomposer plans one move per route, in instruction order.
+  - With move enabled, finishing the last target also goes to the replanner (one more VLM call)
+    instead of ending the task: "find a printer, then walk to the dining tables" has a route
+    after its only target. Without this, the planner never dispatched that route (open-loop
+    eval r04).
+  - Landmarks: Qwen3-VL-8B lists objects that only describe a route ("stop near the plant",
+    "walk past the beige sofa") as targets, even when the prompt tells it not to. Validation drops a
+    target whose head noun occurs in the instruction only within 4 words after a landmark word
+    (past, near, along, by, at, next, ...). Implicit targets, which are not in the text, are kept.
+    The rule is English-only and conservative: "walk past the bar chairs and find an office chair"
+    keeps both chairs.
+  - Object search planned as a route ("take me to an armchair" as a `move`): when a move's
+    instruction names an active target outside a landmark phrase, validation turns it into
+    `explore` of that target, or drops it if that target already has a subtask. Searching for
+    objects stays with the planner, which has memory and verification; DualVLN has neither.
+  - A task that is only a route has no targets. It is done when the replanner says so after the
+    move ends. It fails when the last move ended with `nav_failed` / `timeout` and nothing else
+    is left.
+  - A route that failed `max_attempts_per_target` times is dropped by validation (like a target).
+  - With `move.enabled: false` the schema, prompts and validation are byte-identical to before;
+    a `move` a VLM still returns is dropped with a fix note.
+  - In bag replay S2 blocks, so the replay is deterministic and S2 replies can be cached
+    (`move.s2.cache_dir`).
+- **Open-loop planner eval (M5).** `eval/planner/run_openloop.py --enable-move` on vr_h3_2.
+  `eval/planner/gt_vr_h3_2_move.yaml` has 4 route tasks (route only, route→object,
+  landmark-heavy route→object, object→route) and 2 object-only controls.
+
+  | Version | Success | Routes ok | Note |
+  |---|---|---|---|
+  | First prompt | 2/6 | 4/6 | landmarks became targets; "boarding pass" → wallet; route after the printer lost |
+  | Final | 6/6 | 6/6 | report precision 1.0, target recall 1.0 |
+
+  Final means: prompt with the landmark note and a move item in the JSON example, plus the
+  validation rules above and a replan after the last target. The original 5 object tasks with
+  move enabled: success 0.8, the same as without move, and no move was planned. Target precision
+  rose from 0.8 to 0.9.
+  Caveats:
+  - The eval is small, the routes are hand-written, and replies are cached (temperature 0).
+  - Route success is DualVLN STOP on the recorded path, not a check of the goal region; that
+    needs the closed-loop runs (§13.2).
+

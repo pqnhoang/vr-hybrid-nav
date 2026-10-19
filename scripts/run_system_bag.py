@@ -10,6 +10,13 @@ verification prompts / replies), reports.json, summary.json, memory/ (checkpoint
 map/ (occupancy.png, occupancy.pgm + .yaml for ROS map_server, rooms.png), exploration/ (shadow
 mode: shadow.mp4 top-down debug video, frames/, shadow_log.jsonl, stats.json), recording.rrd (Rerun,
 with --rerun; tab "exploration (top-down)").
+
+--enable-move (TASK_move_subtask.md §10): the planner may plan `move` route subtasks, run on
+MoveCore with the DualVLN S2 server (scripts/serve_dualvln_s2.py, `move.s2.base_url` or --s2-url);
+S2 blocks in the replay (deterministic). Outputs in move/: move_log.jsonl (one record per S2 cycle,
+read with scripts/inspect_move.py), shadow.mp4 (DualVLN view with the pixel goal | map with the
+projection ray, goal and path; one frame per frame of a move subtask) and frames/ (one JPEG per S2
+cycle); with --rerun, tab "move (DualVLN)".
 """
 from __future__ import annotations
 
@@ -25,6 +32,7 @@ from vlnav.exploration.config import ablation_overrides, add_ablation_args
 from vlnav.exploration.viz import ShadowRecorder
 from vlnav.io.sources import resolve
 from vlnav.memory.checkpoint import save_checkpoint
+from vlnav.move.viz import MoveRecorder, render as render_move
 from vlnav.runtime.builder import build_system
 from vlnav.runtime.system_runtime import TaskSpec, task_context
 from vlnav.viz.map_export import export_maps
@@ -49,6 +57,9 @@ def main():
     ap.add_argument("--grpc-port", type=int, default=9876)
     ap.add_argument("--realtime", type=float, default=0.0,
                     help="pace the replay at this multiple of bag time (0 = as fast as possible)")
+    ap.add_argument("--enable-move", action="store_true", help="move subtasks via DualVLN (move.enabled)")
+    ap.add_argument("--s2-url", default=None, help="DualVLN S2 server (default: move.s2.base_url)")
+    ap.add_argument("--s2-cache-dir", default=None, help="S2 reply cache (reproducible replays)")
     add_ablation_args(ap)
     args = ap.parse_args()
 
@@ -56,6 +67,10 @@ def main():
     run_dir.mkdir(parents=True, exist_ok=True)
     rc = load_yaml(resolve(args.run_config))
     rc["exploration"] = deep_merge(rc.get("exploration", {}), ablation_overrides(args))
+    if args.enable_move:
+        s2 = {"blocking": True, **({"base_url": args.s2_url} if args.s2_url else {}),
+              **({"cache_dir": args.s2_cache_dir} if args.s2_cache_dir else {})}
+        rc["move"] = deep_merge(rc.get("move", {}), {"enabled": True, "s2": s2})
     tasks = ([TaskSpec(i, args.task_offset) for i in args.instruction] if args.instruction
              else [TaskSpec(**t) for t in rc.get("tasks", [])])
     if not tasks:
@@ -81,7 +96,8 @@ def main():
         name = " | ".join(t.instruction for t in tasks)
         url = start("vlnav_system", args.rerun.split(","), str(run_dir / "recording.rrd"),
                     args.web_port, args.grpc_port, lan_ip(),
-                    recording_name=(name[:120] + "…") if len(name) > 120 else name, exploration=True)
+                    recording_name=(name[:120] + "…") if len(name) > 120 else name, exploration=True,
+                    move=sysm.move is not None)
         if url:
             print(f"Rerun web viewer: {url}", flush=True)
         viz = RerunLogger(load_viz_config())
@@ -94,11 +110,37 @@ def main():
             last_v[0] = memory.version()
 
     n_steps = [0]
+    move_rec = MoveRecorder(run_dir / "move", sysm.move.cfg.viz) if sysm.move is not None else None
+    move_seen, move_events = [0, 0], []                 # rt.log.move / move_records already shown
+
+    def show_move(frame):
+        """Move subtasks: print the S2 cycles, add a frame to move/shadow.mp4 (+ Rerun)."""
+        log, t_rel = rt.log, frame.stamp - src.t_start
+        for r in log.move_records[move_seen[1]:]:
+            print(f"[t={t_rel:6.1f}s] S2 cycle {r['k']}: {[e['text'] for e in r['exchanges']]} -> {r['decision']}"
+                  + (f" ({r['reason']})" if r["reason"] else "") + (f" goal={r['goal']}" if r.get("goal") else ""),
+                  flush=True)
+        move_seen[1] = len(log.move_records)
+        if len(log.move) == move_seen[0]:                # no move step this frame
+            return
+        move_seen[0] = len(log.move)
+        out = log.move[-1][1]
+        move_events.extend(f"{e.type}@{t_rel:.1f}s" for e in out.events)
+        snap, image = rt.move_view
+        yaw = float(np.arctan2(frame.T_map_base[1, 0], frame.T_map_base[0, 0]))
+        img = render_move(sysm.grid, snap, image, [*frame.T_map_base[:2, 3], yaw],
+                          np.asarray(log.trajectory_xy), out.path, sysm.move.cfg.viz, t_rel, move_events)
+        sub = snap["subtask"]["id"] if snap["subtask"] else 0
+        move_rec.add(img, f"sub{sub:02d}_cycle{snap['last']['k']:03d}" if snap["last"] else None)
+        if hook is not None:
+            viz.log_move(img)
 
     def progress(k, frame, res, events, dispatched, reports):
         decisions = planner.pop_decisions()
         if hook is not None:
             hook(k, frame, res, events, dispatched, reports, decisions)
+        if move_rec is not None:
+            show_move(frame)
         if len(rt.log.exploration) > n_steps[0]:       # exploration stepped this frame
             n_steps[0] = len(rt.log.exploration)
             snap = sysm.exploration.snapshot()
@@ -114,7 +156,8 @@ def main():
         for st in dispatched:
             print(f"[t={frame.stamp - src.t_start:6.1f}s] dispatch {st.type} '{st.target}'"
                   + (f" -> node #{st.node_id}" if st.node_id is not None else "")
-                  + (f" prompts={st.detector_prompts}" if st.detector_prompts else ""), flush=True)
+                  + (f" prompts={st.detector_prompts}" if st.detector_prompts else "")
+                  + (f" instruction={st.instruction!r}" if st.instruction else ""), flush=True)
         for e in events:
             print(f"[t={frame.stamp - src.t_start:6.1f}s] event {e.type} {e.payload}", flush=True)
         for r in reports:
@@ -134,6 +177,13 @@ def main():
 
     rt = sysm.runtime(on_frame=progress, before_frame=pace)
     log = rt.run(tasks)
+    if sysm.move is not None:
+        sysm.move.close()
+        move_rec.close()
+        (run_dir / "move").mkdir(exist_ok=True)
+        with open(run_dir / "move" / "move_log.jsonl", "w") as f:
+            for r in log.move_records:
+                f.write(json.dumps(r) + "\n")
     expl_stats = recorder.close()
     planner.close()
     memory.wait_labels(memory.cfg.labeling.timeout_s)
@@ -156,6 +206,10 @@ def main():
         "memory_ms": {"p50": pct(log.memory_ms, 50), "p95": pct(log.memory_ms, 95)},
         "exploration_ms": {"p50": pct(log.exploration_ms, 50), "p95": pct(log.exploration_ms, 95)},
         "exploration_shadow": {**expl_stats, "events": [e.model_dump() for e in log.exploration_events]},
+        "move": None if sysm.move is None else {
+            "cycles": len(log.move_records),
+            "decisions": {d: sum(r["decision"] == d for r in log.move_records)
+                          for d in sorted({r["decision"] for r in log.move_records})}},
         "rooms": [{"id": r.id, "label": r.label, "area_m2": round(r.area_m2, 1), "objects": len(r.object_ids)}
                   for r in memory.rooms()],
         "memory_confirmed": memory.stats().n_confirmed,
