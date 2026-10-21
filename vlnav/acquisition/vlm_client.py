@@ -3,8 +3,9 @@
 Messages use the OpenAI chat format; images are `{"type": "image_url", "image_url": {"url":
 "data:image/jpeg;base64,..."}}` parts (see `image_part`).
 
-- `OpenAIVLMClient`: any OpenAI-compatible endpoint (vLLM). Structured output via `response_format`
-  (OpenAI json_schema) or `guided_json` (older vLLM) — AUDIT 23.
+- `OpenAIVLMClient`: any OpenAI-compatible endpoint (vLLM, or a cloud API with `api_key_env`).
+  Structured output via `response_format` (OpenAI json_schema) or `guided_json` (older vLLM) — AUDIT 23.
+  The key is read from the environment variable named by `api_key_env`, never from a file.
 - `LocalQwenVLMClient`: Qwen3-VL loaded in-process with transformers on one or several GPUs. No
   constrained decoding: the schema is appended to the prompt and the reply is parsed robustly.
 - `MockVLMClient`: scripted replies for tests (timeouts and malformed JSON included).
@@ -16,6 +17,7 @@ import base64
 import copy
 import hashlib
 import json
+import os
 import re
 import threading
 from collections.abc import Callable
@@ -51,6 +53,7 @@ class VLMConfig(BaseModel):
     backend: Literal["local", "openai", "mock"]
     model: str
     base_url: str
+    api_key_env: str | None           # backend openai: env variable holding the key; None -> local server
     structured_output: Literal["response_format", "guided_json", "none"]
     temperature: float
     max_tokens: int
@@ -186,7 +189,12 @@ class OpenAIVLMClient(_CachedClient):
     def __init__(self, cfg: VLMConfig):
         super().__init__(cfg)
         from openai import OpenAI
-        self.client = OpenAI(base_url=cfg.base_url, api_key="EMPTY")
+        api_key = "EMPTY"
+        if cfg.api_key_env:
+            api_key = os.environ.get(cfg.api_key_env, "")
+            if not api_key:
+                raise VLMError(f"backend openai: environment variable {cfg.api_key_env} is not set")
+        self.client = OpenAI(base_url=cfg.base_url, api_key=api_key)
 
     def _chat(self, messages, json_schema, timeout_s) -> str:
         kw: dict[str, Any] = {}

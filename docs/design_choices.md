@@ -598,4 +598,17 @@ Plan: [plans/TASK_move_subtask.md](../plans/TASK_move_subtask.md). M0 was run on
   - The eval is small, the routes are hand-written, and replies are cached (temperature 0).
   - Route success is DualVLN STOP on the recorded path, not a check of the goal region; that
     needs the closed-loop runs (§13.2).
+- **Planner prompts without few-shot examples.** `prompt/planner_prompt_v1.py` sends the rules as a
+  system turn, then the request with its images. Few-shot examples (5 decompose + 5 replan, made-up
+  scenes) were tried and removed to keep the prompt simple:
+  - They cost about 0.9k tokens per call with move off, 1.8k with move on.
+  - Open-loop eval on vr_h3_2, zero-shot → few-shot, live VLM:
+
+    | Eval | Success | Target precision | Order ok | VLM calls/task |
+    |---|---|---|---|---|
+    | Objects (5 tasks) | 0.8 → 0.6 | 0.8 → 1.0 | — | 5.2 → 4.4 |
+    | Move (6 tasks) | 1.0 → 0.83 | 0.92 → 1.0 | 0.83 → 1.0 | 5.0 → 5.5 |
+
+  - Precision and order improved; both success drops were the TV task, decided by the fragile
+    object check, not the planner. The eval is small (11 tasks): one task moves success by 0.17–0.2.
 

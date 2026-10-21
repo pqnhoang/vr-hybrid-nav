@@ -3,6 +3,9 @@
 With `move` enabled (TASK_move_subtask.md §10.2) the subtask schema gains `"move"` + `instruction`
 and the prompts gain the route rule; disabled, both are unchanged.
 
+Prompt templates live in prompt/<cfg.prompts>.py, e.g. prompt/planner_prompt_v1.py. Chat: system
+rules (*_SYSTEM), then the request with its images.
+
 Both send the serialized scene graph and — because the paper uses the scene graph *and* image
 memory for decomposition and replanning (AUDIT 2.4) — best-view crops of up to `planning_images`
 objects most relevant to the instruction / pending targets, each tagged with its #id.
@@ -10,12 +13,12 @@ objects most relevant to the instruction / pending targets, each tagged with its
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
+from jinja2 import Environment, StrictUndefined
 
 from vlnav.acquisition.memory_api import MemoryView
 from vlnav.acquisition.vlm_client import VLMClient, extract_json, image_part, strip_images, text_part
@@ -23,7 +26,6 @@ from vlnav.planner.config import PlannerConfig
 from vlnav.planner.serializer import ExplorationSummary, GraphSerializer
 from vlnav.planner.state import PlannerState
 
-PROMPT_DIR = Path(__file__).parent / "prompts"
 REPAIR_MESSAGE = "Your previous answer was not valid JSON. Return valid JSON only, matching the schema."
 
 _SUBTASK = {"type": "object",
@@ -74,8 +76,18 @@ class QueryResult:
     image_ids: list[int] = field(default_factory=list)
     latency_s: float = 0.0
     prompt: list[dict] = field(default_factory=list)
-    prompt_text: str = ""                  # full text sent (debug dumps)
+    prompt_text: str = ""                  # full text sent, every turn (debug dumps)
     crops: dict = field(default_factory=dict)   # node id -> RGB crop sent (debug dumps)
+
+
+def _text(messages: list[dict]) -> str:
+    """Every turn as text with its role, images as their caption only (debug dumps, decision log)."""
+    out = []
+    for m in messages:
+        c = m["content"]
+        body = c if isinstance(c, str) else "\n".join(p["text"] for p in c if p["type"] == "text")
+        out.append(f"[{m['role']}]\n{body}")
+    return "\n\n".join(out)
 
 
 class PlanQuery:
@@ -84,8 +96,10 @@ class PlanQuery:
         self.vlm = vlm
         self.serializer = serializer
         # no trim_blocks: it swallowed the newline after inline {% endif %} and glued list lines
-        self.env = Environment(loader=FileSystemLoader(PROMPT_DIR), undefined=StrictUndefined,
-                               keep_trailing_newline=True)
+        env = Environment(undefined=StrictUndefined, keep_trailing_newline=True)
+        prompts = importlib.import_module(f"prompt.{cfg.prompts}")
+        self.decompose_tpl = (env.from_string(prompts.DECOMPOSE_SYSTEM), env.from_string(prompts.DECOMPOSE))
+        self.replan_tpl = (env.from_string(prompts.REPLAN_SYSTEM), env.from_string(prompts.REPLAN))
         self.planning_images = cfg.planning_images        # ablation: 0 = text only
         self.move = False                                 # PlannerCore sets it from move.enabled
 
@@ -95,7 +109,11 @@ class PlanQuery:
         order = self.serializer.ordered(memory, texts)
         return [n.id for n, _ in order[:self.planning_images]]
 
-    def _ask(self, prompt: str, memory: MemoryView, image_ids: list[int], schema: dict,
+    def context(self, tpl) -> list[dict]:
+        """System rules for the current move setting."""
+        return [{"role": "system", "content": tpl[0].render(move=self.move)}]
+
+    def _ask(self, context: list[dict], prompt: str, memory: MemoryView, image_ids: list[int], schema: dict,
              graph: str) -> QueryResult:
         t0 = time.perf_counter()
         content = [text_part(prompt)]
@@ -108,12 +126,11 @@ class PlanQuery:
                 continue
             crops[n.id] = crop
             content += [text_part(f"Image of #{n.id} ({n.label}):"), image_part(crop)]
-        messages = [{"role": "user", "content": content}]
+        messages = [*context, {"role": "user", "content": content}]
         blob = json.dumps(strip_images(messages), sort_keys=True)
         res = QueryResult(None, prompt_hash=hashlib.sha256(blob.encode()).hexdigest()[:16], graph=graph,
                           image_ids=list(crops), prompt=strip_images(messages),
-                          prompt_text="\n".join(p["text"] for p in content if p["type"] == "text"),
-                          crops=crops)
+                          prompt_text=_text(messages), crops=crops)
         convo = list(messages)
         for _ in range(2):                                # one repair retry (spec §5.5)
             try:
@@ -139,10 +156,9 @@ class Decomposer(PlanQuery):
                   exploration: ExplorationSummary | None = None) -> QueryResult:
         graph = self.serializer.serialize(memory, [instruction], exploration)
         images = self.select_images(memory, [instruction])
-        prompt = self.env.get_template("decompose.j2").render(
-            instruction=instruction, graph=graph, n_images=len(images), move=self.move)
-        return self._ask(prompt, memory, images, with_move(DECOMPOSE_SCHEMA) if self.move else DECOMPOSE_SCHEMA,
-                         graph)
+        prompt = self.decompose_tpl[1].render(instruction=instruction, graph=graph, n_images=len(images))
+        schema = with_move(DECOMPOSE_SCHEMA) if self.move else DECOMPOSE_SCHEMA
+        return self._ask(self.context(self.decompose_tpl), prompt, memory, images, schema, graph)
 
 
 class Replanner(PlanQuery):
@@ -151,7 +167,8 @@ class Replanner(PlanQuery):
         active = [t.name for t in state.targets if t.active]
         graph = self.serializer.serialize(memory, active, exploration)
         images = self.select_images(memory, active)
-        prompt = self.env.get_template("replan.j2").render(
+        prompt = self.replan_tpl[1].render(
             instruction=state.instruction, targets=state.targets, history=state.history,
-            last_event=last_event, graph=graph, n_images=len(images), move=self.move)
-        return self._ask(prompt, memory, images, with_move(REPLAN_SCHEMA) if self.move else REPLAN_SCHEMA, graph)
+            last_event=last_event, graph=graph, n_images=len(images))
+        schema = with_move(REPLAN_SCHEMA) if self.move else REPLAN_SCHEMA
+        return self._ask(self.context(self.replan_tpl), prompt, memory, images, schema, graph)

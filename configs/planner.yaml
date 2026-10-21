@@ -14,4 +14,5 @@ task_timeout_s: 900
 max_attempts_per_target: 3
 vlm_timeout_s: 120
 decision_log: logs/decisions.jsonl
+prompts: planner_prompt_v1         # prompt/planner_prompt_v1.py: DECOMPOSE + REPLAN templates
 debug_dumps: true                  # <log dir>/planner_debug/NNN_<kind>/: prompt, images, replies, plan, memory

@@ -26,6 +26,7 @@ class PlannerConfig(BaseModel):
     vlm_timeout_s: float
     decision_log: str | None
     debug_dumps: bool                # one folder per decompose / replan next to the decision log
+    prompts: str                     # module in prompt/ with DECOMPOSE + REPLAN, e.g. planner_prompt_v1
 
 
 def load_planner_config(path: str | Path = CONFIG_DIR / "planner.yaml",

@@ -26,8 +26,9 @@ PY=~/miniconda3/envs/fastvggt/bin/python
 `configs/vlm.yaml`: `backend: local` loads `checkpoint/vlm/Qwen3-VL-8B-Instruct` in-process on GPU 1
 (17 GB bf16); `local.devices: [0, 1]` splits it over both 4090s. With a vLLM server instead:
 `vllm serve checkpoint/vlm/Qwen3-VL-8B-Instruct --port 8000` and `backend: openai`
-(`model` = the served name, i.e. the same path). `cache_dir` makes reruns with identical prompts
-reproducible and free. Perception (YOLO-World + FastSAM) runs on GPU 0.
+(`model` = the served name, i.e. the same path). For a cloud API: `backend: openai`, its `base_url` and
+`model`, and `api_key_env: OPENAI_API_KEY` (the key stays in the environment, not in a file).
+`cache_dir` makes reruns with identical prompts reproducible and free. Perception (YOLO-World + FastSAM) runs on GPU 0.
 
 ## Outputs of a system run
 
@@ -143,10 +144,30 @@ Every system run writes, next to `decisions.jsonl`, one folder per VLM planning 
 | Target verification prompts / replies | `<run-dir>/acquisition_debug.jsonl` |
 | Watch it live | Rerun recording, tab "planner" (VLM reasoning, plan, fixes, acquisition, debug folder path) |
 
-Prompt templates: `vlnav/planner/prompts/decompose.j2`, `replan.j2`,
+Prompt templates: `prompt/planner_prompt_v1.py` (`*_SYSTEM` rules, `DECOMPOSE` / `REPLAN` requests;
+`prompt.txt` in a dump shows every turn),
 `vlnav/acquisition/prompts/verify_target.j2`; repair rules: `vlnav/planner/validation.py`;
 FSM: `vlnav/planner/core.py`. Edit a template, then replay a dump to see the effect in ~3 s.
 `vlm.cache_dir` returns cached replies for identical prompts; the replay script disables the cache.
+
+## Code-as-policy agents (Planner / Coder / Observer)
+
+`agent: {enabled: true}` in a run config (`configs/agent.yaml`, `plans/TASK_cap_mas.md`) replaces the
+NeSy planner: the agents write a `def task(api):` program, a dry run on the current scene graph checks
+it, and the runtime executes it. Each part of the instruction becomes one of three subtasks: movement
+commands → `api.follow` → `move` (DualVLN); a known object the VLM confirms → `api.locate` → `goto`;
+an unknown object → `api.locate` explores → `explore`, then `goto`. No valid program in `max_round`
+rounds → the NeSy planner takes the task.
+
+| Goal | Command / file |
+|---|---|
+| Robot | `run_config:=configs/runs/vr_h3_2_ros2_cap.yaml` (move config + agents; DualVLN S2 server needed) |
+| Bag eval | `eval/planner/run_openloop.py ... --enable-move --agent` |
+| Each deliberation round (plan, program, dry-run trace, hard checks, Observer verdict) | `<run-dir>/rounds.jsonl` |
+| Agent calls, program steps, dispatches | `decisions.jsonl` kinds `agent_call`, `program_step`, `dispatch`, `program_end` |
+| The running program in RViz (numbered lines, the running line highlighted, ok / FAIL results) | topic `/planner/program` (Image, panel "Agent program" in `vlnav.rviz`) |
+| The program of a finished run, readable | `python scripts/inspect_decisions.py <run-dir> [--show N]` |
+| Prompts | `prompt/cap_planner_v1.py`, `cap_coder_v1.py`, `cap_observer_v1.py`; API doc: `vlnav/agent/api.py` |
 
 ## Different instructions -> different recordings
 

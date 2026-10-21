@@ -6,6 +6,9 @@ then metrics. Models (detector, VLM, text encoder) are loaded once and reused ac
 
 Move subtasks (TASK_move_subtask.md M5): --enable-move with eval/planner/gt_vr_h3_2_move.yaml (needs the
 DualVLN S2 server, scripts/serve_dualvln_s2.py).
+
+Code-as-policy agents (TASK_cap_mas.md): --agent replaces the NeSy planner by ProgramRuntime
+(configs/agent.yaml; the NeSy planner stays as the fallback). Rounds go to <out>/<task>/rounds.jsonl.
 """
 from __future__ import annotations
 
@@ -39,6 +42,7 @@ def main():
     ap.add_argument("--enable-move", action="store_true", help="move subtasks via DualVLN (move.enabled)")
     ap.add_argument("--s2-url", default=None, help="DualVLN S2 server (default: move.s2.base_url)")
     ap.add_argument("--s2-cache-dir", default=None, help="S2 reply cache (reproducible replays)")
+    ap.add_argument("--agent", action="store_true", help="code-as-policy agents (agent.enabled)")
     args = ap.parse_args()
     rc = load_yaml(resolve(args.run_config))
     if args.no_planning_images:
@@ -53,6 +57,8 @@ def main():
         s2 = {"blocking": True, **({"base_url": args.s2_url} if args.s2_url else {}),
               **({"cache_dir": args.s2_cache_dir} if args.s2_cache_dir else {})}
         rc["move"] = deep_merge(rc.get("move", {}), {"enabled": True, "s2": s2})
+    if args.agent:
+        rc["agent"] = deep_merge(rc.get("agent", {}), {"enabled": True})
     gt = load_gt(args.gt)
     objs = {o["gt_id"]: o for o in gt["objects"]}
     out = resolve(args.out)

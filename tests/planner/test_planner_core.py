@@ -129,14 +129,14 @@ def test_decomposer_attaches_planning_images(tmp_path):
     r = Router(decompose=[DECOMP], verify=[verify("A")])
     p, _ = make_planner(tmp_path, r, planning_images=2)
     p.submit_task(INSTR, 0.0)
-    msg = p.decomposer.vlm.calls[0]["messages"][0]["content"]
+    msg = p.decomposer.vlm.calls[0]["messages"][-1]["content"]          # the request (after the system turn)
     assert sum(x["type"] == "image_url" for x in msg) == 2
     assert any(x["type"] == "text" and x["text"].startswith("Image of #") for x in msg)
     assert INSTR in msg[0]["text"] and "ROOMS" in msg[0]["text"]
     r0 = Router(decompose=[DECOMP], verify=[verify("A")])
     p0, _ = make_planner(tmp_path / "noimg", r0, planning_images=0)
     p0.submit_task(INSTR, 0.0)
-    assert all(x["type"] == "text" for x in p0.decomposer.vlm.calls[0]["messages"][0]["content"])
+    assert all(x["type"] == "text" for x in p0.decomposer.vlm.calls[0]["messages"][-1]["content"])
 
 
 def test_task_done_ignored_while_targets_active(tmp_path):

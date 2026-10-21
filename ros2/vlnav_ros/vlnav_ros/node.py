@@ -27,6 +27,7 @@ from vlnav.io.ros_decode import stamp_s, transform_to_matrix
 from vlnav.io.sources import load_bag_config, resolve
 from vlnav.io.tf_buffer import static_matrix
 from vlnav.runtime.builder import build_components
+from vlnav.agent.viz import render_program
 from vlnav.runtime.live_runtime import LiveRuntime, hold
 from vlnav_ros.camera_images import annotate_detections
 from vlnav_ros.messages import (frontier_messages, header, move_messages, navigation_messages,
@@ -121,6 +122,10 @@ class VlnavNode(Node):
         self.robot_pub = self.create_publisher(MarkerArray, "/exploration/robot_markers", latched)
         self.move_pub = (self.create_publisher(MarkerArray, "/move/markers", latched)
                          if self.runtime.move is not None else None)
+        # code-as-policy agents (agent.enabled): the running program as an image, for RViz
+        self.program_pub = (self.create_publisher(Image, "/planner/program", latched)
+                            if hasattr(self.runtime.c.planner, "program_view") else None)
+        self._program_view = None
         self.report_pub = self.create_publisher(String, "/planner/report", 10)
         self.status_pub = self.create_publisher(String, "/planner/status", latched)
         self.navigation_action = (NavigationAction(
@@ -267,6 +272,8 @@ class VlnavNode(Node):
                         except Exception as exc:
                             self.get_logger().error(f"Goal camera image saving failed: {type(exc).__name__}: {exc}")
                             self._saved_goal_key = key
+                if self.program_pub is not None:
+                    self._publish_program(now)
                 reports = self.runtime.c.planner.pop_reports()
                 # Copy on the worker: ROS callbacks must not iterate mutable core state.
                 frontier_points = [{"xy": p.xy, "blacklisted": p.blacklisted_until > now}
@@ -305,6 +312,20 @@ class VlnavNode(Node):
                 self._status = {"state": "ERROR", "error": str(exc)}
         finally:
             self.runtime.close()
+
+    def _publish_program(self, now: float):
+        """Publish the program image when the program, its current line or its results changed."""
+        view = self.runtime.c.planner.program_view()
+        if view is None or view == self._program_view:
+            return
+        self._program_view = view
+        try:
+            img = render_program(view)
+            h, w = img.shape[:2]
+            self.program_pub.publish(Image(header=header(self.map_frame, now), height=h, width=w,
+                                           encoding="bgr8", is_bigendian=0, step=w * 3, data=img.tobytes()))
+        except Exception as exc:
+            self.get_logger().error(f"Program image publish failed: {type(exc).__name__}: {exc}")
 
     def _publish_navigation(self):
         now = self.get_clock().now().nanoseconds * 1e-9

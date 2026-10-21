@@ -10,11 +10,14 @@ perception:
   lifting: {max_depth_m: 10.0}
 planner:
   blocking: false
-  explore_timeout_s: 60
-  goto_timeout_s: 40
+  explore_timeout_s: 180          # real robot: 60 s ended explores too early
+  goto_timeout_s: 120
 exploration:
   selection: {stuck_detection: true}
-  frontier: {min_cluster_cells: 10}
+  # fewer frontier points (about half on the vr_h3_2 maps): drop clusters under 0.75 m, one point
+  # for clusters up to 3 m, then one per 3 m
+  frontier: {min_cluster_cells: 15, small_cluster_cells: 60, sample_spacing_m: 3.0}
 move:
   enabled: true
   s2: {base_url: "http://localhost:8001"}   # the node forces s2.blocking: false
+  loop: {timeout_s: 300, max_queries: 150}   # one route may take minutes on the robot

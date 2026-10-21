@@ -71,6 +71,11 @@ class ExplorationCore:
         self._t_frame = self._t_step = None
         self._ms = {"on_frame": 0.0, "step": 0.0}
 
+    @property
+    def robot(self) -> tuple[float, float, float] | None:
+        """Robot (x, y, yaw) at the last `step`; None before the first."""
+        return self._robot
+
     # --------------------------------------------------------------------------- subtask
     def set_subtask(self, st: Subtask, object_xy: tuple[float, float] | None = None,
                     *, require_object_approach: bool = False) -> None:

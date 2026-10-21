@@ -148,7 +148,7 @@ PYTHONPATH=. $PY scripts/inspect_decisions.py runs/sys                   # plann
 PYTHONPATH=. $PY scripts/replay_planner_query.py runs/sys/planner_debug/003_replan --show-prompt   # re-run one VLM call
 ```
 
-Prompts are in `vlnav/planner/prompts/`, `vlnav/acquisition/prompts/` and `vlnav/memory/prompts/`.
+Prompts are in `prompt/planner_prompt_v1.py` (planner: rules and request templates; `prompts:` in `configs/planner.yaml` selects the version), `vlnav/acquisition/prompts/` and `vlnav/memory/prompts/`.
 For the full debug workflow, see [docs/running.md](docs/running.md).
 
 In bag replay the robot follows the recorded path, not the chosen goal. The goal often changes

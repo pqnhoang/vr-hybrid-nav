@@ -26,12 +26,11 @@ viz = ["rerun-sdk==0.30.2"]
 calib = ["open3d"]                     # scripts/calibrate_lidar_camera.py only
 
 [tool.setuptools.packages.find]
-include = ["vlnav*"]
+include = ["vlnav*", "prompt*"]
 
 [tool.setuptools.package-data]
 "vlnav.memory" = ["prompts/*.j2"]
 "vlnav.acquisition" = ["prompts/*.j2"]
-"vlnav.planner" = ["prompts/*.j2"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

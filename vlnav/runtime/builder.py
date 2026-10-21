@@ -9,21 +9,25 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from vlnav.acquisition.acquirer import TargetAcquirer
+from vlnav.agent.config import AgentConfig, load_agent_config
 from vlnav.acquisition.config import load_acquisition_config
 from vlnav.acquisition.label_matcher import LabelMatcher, make_text_embedder
 from vlnav.acquisition.vlm_client import VLMClient, load_vlm_config, make_vlm_client
+from vlnav.common.config import deep_merge
 from vlnav.exploration import ExplorationCore, load_exploration_config
 from vlnav.io.sources import BagSource, load_bag_config, resolve
 from vlnav.mapping.config import MappingConfig, load_mapping_config
 from vlnav.mapping.occupancy import OccupancyGrid2D
 from vlnav.memory import ImageStore, RoomLabeler, UnifiedMemory, load_memory_config
 from vlnav.move import CachedS2Client, HttpS2Client, MoveCore, S2Client, load_move_config
-from vlnav.navigation import GridAStar, load_navigation_config
+from vlnav.navigation import GridAStar, NavigationConfig, load_navigation_config
 from vlnav.perception.config import load_checkpoint_paths, load_perception_config
 from vlnav.perception.detector import YoloWorldFastSam
 from vlnav.perception.pipeline import PerceptionPipeline, VocabularyManager, load_vocab_file
 from vlnav.planner.config import load_planner_config
+from vlnav.planner.config import PlannerConfig
 from vlnav.planner.core import PlannerCore
+from vlnav.planner.serializer import GraphSerializer
 from vlnav.runtime.system_runtime import SystemRuntime
 from vlnav.sim.bag_event_sim import BagEventSim, load_sim_config
 
@@ -35,7 +39,7 @@ class System:
     memory: UnifiedMemory
     matcher: LabelMatcher
     acquirer: TargetAcquirer
-    planner: PlannerCore
+    planner: PlannerCore                     # or agent.runtime.ProgramRuntime (agent.enabled), same interface
     sim: BagEventSim
     vlm: VLMClient
     grid: OccupancyGrid2D
@@ -55,7 +59,7 @@ class Components:
     memory: UnifiedMemory
     matcher: LabelMatcher
     acquirer: TargetAcquirer
-    planner: PlannerCore
+    planner: PlannerCore                     # or agent.runtime.ProgramRuntime (agent.enabled), same interface
     vlm: VLMClient
     grid: OccupancyGrid2D
     mapping: MappingConfig
@@ -135,8 +139,49 @@ def build_components(rc: dict, run_dir: Path, vlm: VLMClient | None = None,
     matcher = matcher or build_matcher(acfg)
     acquirer = TargetAcquirer(acfg, matcher, vlm)
     move_on = load_move_config(overrides=rc.get("move")).enabled
-    planner = PlannerCore(load_planner_config(overrides=rc.get("planner")), memory, acquirer, vlm, matcher,
+    pcfg = load_planner_config(overrides=rc.get("planner"))
+    planner = PlannerCore(pcfg, memory, acquirer, vlm, matcher,
                           decision_log=run_dir / "decisions.jsonl", move_enabled=move_on)
     exploration = build_exploration(rc, grid, memory)
+    acfg_agent = load_agent_config(overrides=rc.get("agent"))
+    if acfg_agent.enabled:                            # code-as-policy agents; PlannerCore is the fallback
+        ncfg = load_navigation_config(overrides=rc.get("navigation"))
+        planner = build_agent_runtime(acfg_agent, rc, run_dir, pcfg, ncfg, memory, grid, acquirer, vlm,
+                                      matcher, planner, lambda: exploration.robot, move_on)
     move = build_move(rc, grid) if move_on else None
     return Components(perception, memory, matcher, acquirer, planner, vlm, grid, mapping, exploration, move)
+
+
+def build_agent_runtime(cfg: AgentConfig, rc: dict, run_dir: Path, pcfg: PlannerConfig, ncfg: NavigationConfig,
+                        memory: UnifiedMemory, grid: OccupancyGrid2D, acquirer: TargetAcquirer, vlm: VLMClient,
+                        matcher: LabelMatcher, fallback: PlannerCore, robot_fn, move_on: bool):
+    """ProgramRuntime (TASK_cap_mas.md) with Planner / Coder / Observer; each role uses the shared VLM
+    client unless `agent.<role>.vlm` gives overrides on configs/vlm.yaml (one client per distinct config)."""
+    from vlnav.agent.coder import CoderAgent
+    from vlnav.agent.mas import Orchestrator
+    from vlnav.agent.observer import ObserverAgent
+    from vlnav.agent.planner import PlannerAgent
+    from vlnav.agent.runtime import ProgramRuntime
+    clients: dict[str, VLMClient] = {}
+
+    def client(role) -> VLMClient:
+        if role.vlm is None:
+            return vlm
+        key = repr(sorted(role.vlm.items()))
+        if key not in clients:
+            clients[key] = make_vlm_client(load_vlm_config(overrides=deep_merge(rc.get("vlm") or {}, role.vlm)))
+        return clients[key]
+    t = cfg.vlm_timeout_s
+    log_dir = Path(cfg.log_dir) if cfg.log_dir else run_dir
+    rt: ProgramRuntime | None = None
+
+    def log(kind, **fields):
+        if rt is not None:
+            rt.log(kind, **fields)
+    mas = Orchestrator(cfg, PlannerAgent(client(cfg.planner), cfg.prompts.planner, t),
+                       CoderAgent(client(cfg.coder), cfg.prompts.coder, t),
+                       ObserverAgent(client(cfg.observer), cfg.prompts.observer, t),
+                       acquirer.filter, GraphSerializer(pcfg, matcher), ncfg, log, log_dir / "rounds.jsonl")
+    rt = ProgramRuntime(cfg, pcfg, ncfg, memory, grid, acquirer, vlm, mas, fallback, robot_fn,
+                        decision_log=run_dir / "decisions.jsonl", move_enabled=move_on)
+    return rt

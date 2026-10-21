@@ -1,0 +1,21 @@
+# Code-as-policy multi-agent planner (plans/TASK_cap_mas.md). `enabled: true` replaces the NeSy
+# PlannerCore with vlnav/agent/runtime.py:ProgramRuntime; the NeSy planner stays as the fallback.
+enabled: false
+blocking: null                   # null: same as planner.blocking (true = deterministic bag replay)
+max_round: 3                     # deliberation rounds: Planner -> Coder -> validate -> dry-run -> Observer
+max_repairs: 2                   # new deliberations after a failed program, per task
+max_primitives: 40               # actions per program (dry-run and real run)
+observer_veto: false             # true: an Observer INVALID rejects a program; false: the code checks decide and
+                                 # the Observer only steers the next round (the local 8B Observer rejects good programs)
+coder_retries: 1                 # a program that does not validate goes back to the Coder this often
+fallback: nesy                   # nesy: no valid program -> NeSy PlannerCore takes the task | none: task fails
+vlm_timeout_s: 120
+log_dir: null                    # rounds.jsonl + transcripts; null: next to planner decisions.jsonl
+prompts: {planner: cap_planner_v1, coder: cap_coder_v1, observer: cap_observer_v1}   # modules in prompt/
+# Per agent: null -> the shared VLM client (configs/vlm.yaml, local Qwen3-VL), else overrides on
+# configs/vlm.yaml for a separate client, e.g. a cloud API (§4):
+#   planner: {vlm: {backend: openai, base_url: https://api.openai.com/v1, model: <pinned version>,
+#                   api_key_env: OPENAI_API_KEY, structured_output: response_format}}
+planner: {vlm: null}
+coder: {vlm: null}
+observer: {vlm: null}
