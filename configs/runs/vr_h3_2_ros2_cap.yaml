@@ -1,0 +1,24 @@
+# vr_h3_2_ros2_move.yaml with the code-as-policy agents (plans/TASK_cap_mas.md, configs/agent.yaml):
+# follow -> move (DualVLN), locate a known object -> goto, unknown -> explore. The NeSy planner is
+# the fallback when no valid program is found. Same servers as the move config (DualVLN S2, GPU 0).
+memory:
+  rooms: {enabled: true}
+  checkpoints: {checkpoint_every_s: 10}
+  gating: {max_obs_range_m: 10.0}
+perception:
+  detector: {cache_dir: null, device: "cuda:1"}   # GPU 0 holds DualVLN; GPU 1 Qwen3-VL
+  vocabulary: {generic_vocab_file: configs/vocab/office.txt}
+  lifting: {max_depth_m: 10.0}
+planner:
+  blocking: false
+  explore_timeout_s: 180
+  goto_timeout_s: 120
+exploration:
+  selection: {stuck_detection: true}
+  frontier: {min_cluster_cells: 15, small_cluster_cells: 60, sample_spacing_m: 3.0}
+move:
+  enabled: true
+  s2: {base_url: "http://localhost:8001"}   # the node forces s2.blocking: false
+  loop: {timeout_s: 300, max_queries: 150}
+agent:
+  enabled: true
