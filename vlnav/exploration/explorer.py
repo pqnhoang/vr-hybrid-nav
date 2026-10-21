@@ -191,6 +191,8 @@ class ExplorationCore:
     def step(self, robot_pose: Pose, t: float) -> ExplorationOutput:
         t0 = time.perf_counter()
         self._notes = []
+        if self.selector.debug:
+            self.selector.last_debug = {"mode": "hold", "reason": "no_subtask_stop_or_empty_grid"}
         cfg = self.cfg
         x, y, z = robot_pose.position
         robot_xy, yaw = (x, y), robot_pose.yaw()
@@ -212,6 +214,9 @@ class ExplorationCore:
                                       self.goto_object_xy[0] - approach[0])
                     gp = _pose(approach, z, face, t)
             if gp is None:
+                if self.selector.debug:
+                    self.selector.last_debug = {"mode": "goto", "reason": "no_reachable_object_approach",
+                                                "object_xy": self.goto_object_xy}
                 out = ExplorationOutput(goal=None, goal_kind="hold", goal_id=st.node_id, path=None, events=[])
             else:
                 kind, path, ev = self.selector.goto(self.grid, robot_xy, yaw, t, gp.position[:2], gp.yaw())

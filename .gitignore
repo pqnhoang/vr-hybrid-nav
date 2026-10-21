@@ -1,7 +1,7 @@
 __pycache__/
 *.egg-info/
 .pytest_cache/
-runs/
+/runs/
 logs/
 checkpoint/
 sample-data/

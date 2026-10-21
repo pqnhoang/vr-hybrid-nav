@@ -1,0 +1,7 @@
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 action list -t | grep vr_navigate_to_pose
+ros2 action info /vr_navigate_to_pose
+
+
+ros2 topic echo /exploration/navigation_action_status

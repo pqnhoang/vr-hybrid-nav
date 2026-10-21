@@ -59,6 +59,8 @@ class GoalSelector:
         self.cfg = cfg
         self.planner = planner
         self.s = SelectorState()
+        self.debug = False
+        self.last_debug: dict = {}
 
     def reset(self) -> None:
         """New subtask: no goal, events re-armed."""
@@ -79,6 +81,9 @@ class GoalSelector:
                 return None                            # budget spent: no verdict on this candidate
             tried += 1
             path = self._plan(grid, robot_xy, g)
+            if self.debug:
+                self.last_debug["plans"].append({"kind": c.kind, "id": c.id, "xy": g,
+                                                 "reachable": bool(path)})
             if path:
                 on_result(c, True)
                 return Choice(c, g, path)
@@ -101,16 +106,36 @@ class GoalSelector:
         """`instances` ranked, `frontiers` sorted by S_NeSy (both already filtered: δ_reached,
         blacklist, status). Returns the goal or None (hold)."""
         s = self.s
+        previous = s.current
+        if self.debug:
+            self.last_debug = {"mode": "explore", "previous": None if previous is None else
+                               {"kind": previous.cand.kind, "id": previous.cand.id,
+                                "xy": previous.goal_xy, "score": previous.cand.score},
+                               "retention": "no_previous_goal", "plans": [],
+                               "instance_candidates": len(instances), "frontier_candidates": len(frontiers),
+                               "switch_margin": self.cfg.switch_margin,
+                               "previous_path_version": s.path_version, "grid_version": grid.version,
+                               "previous_path_age_s": t - s.path_t}
         s.reach_checks = 0
         by_key = {(c.kind, c.id): c for c in [*instances, *frontiers]}
         keep, replanned = None, False
+        if self.debug and previous is not None:
+            self.last_debug["retention"] = "previous_not_selectable"
         if s.current is not None and (c := by_key.get((s.current.cand.kind, s.current.cand.id))) is not None:
             fresh = grid.version == s.path_version and t - s.path_t < self.cfg.replan_period_s
+            if self.debug:
+                self.last_debug.update(previous_current_score=c.score,
+                                       approach_changed=s.current.goal_xy not in c.goals,
+                                       grid_changed=grid.version != s.path_version)
             if fresh and s.current.goal_xy in c.goals:          # path still valid: no replan
                 keep = Choice(c, s.current.goal_xy, s.current.path)
+                if self.debug:
+                    self.last_debug["retention"] = "cached_path"
             else:
                 keep = self._try(c, grid, robot_xy, on_result, prefer=s.current.goal_xy)
                 replanned = keep is not None
+                if self.debug:
+                    self.last_debug["retention"] = "replanned" if replanned else "previous_path_failed"
         best = None
         for c in [*instances, *frontiers]:
             if s.reach_checks >= self.cfg.max_reach_checks:
@@ -118,6 +143,24 @@ class GoalSelector:
             if self._can_win(c, keep) and (best := self._try(c, grid, robot_xy, on_result)) is not None:
                 break
         choice = best or keep
+        if self.debug:
+            if choice is None:
+                reason = "no_reachable_candidate"
+            elif previous is None:
+                reason = "initial_selection"
+            elif (choice.cand.kind, choice.cand.id) == (previous.cand.kind, previous.cand.id):
+                reason = "approach_changed" if choice.goal_xy != previous.goal_xy else "kept_goal"
+            elif keep is None:
+                reason = self.last_debug["retention"]
+            elif choice.cand.kind != previous.cand.kind:
+                reason = "instance_preempts_frontier"
+            else:
+                reason = "challenger_exceeds_switch_margin"
+            self.last_debug.update(reason=reason, reach_checks=s.reach_checks,
+                                   reach_budget_exhausted=s.reach_checks >= self.cfg.max_reach_checks,
+                                   selected=None if choice is None else
+                                   {"kind": choice.cand.kind, "id": choice.cand.id,
+                                    "xy": choice.goal_xy, "score": choice.cand.score})
         if choice is not None and s.current is not None and \
                 (choice.cand.kind, choice.cand.id) != (s.current.cand.kind, s.current.cand.id):
             s.n_switches += 1
@@ -162,20 +205,32 @@ class GoalSelector:
              goal_yaw: float) -> tuple[Literal["goto", "hold"], list[XY] | None, str | None]:
         """(goal kind, path, event type or None)."""
         s, c = self.s, self.cfg
+        if self.debug:
+            self.last_debug = {"mode": "goto", "goal_xy": goal_xy, "goal_yaw_rad": goal_yaw,
+                               "distance_m": math.dist(robot_xy, goal_xy),
+                               "goto_failures": s.goto_failures, "grid_version": grid.version}
         yaw_ok = c.goto_yaw_tol_rad is None or abs(float(wrap_angle(robot_yaw - goal_yaw))) <= c.goto_yaw_tol_rad
         if math.dist(robot_xy, goal_xy) <= c.goto_reach_radius_m and yaw_ok:
+            if self.debug:
+                self.last_debug["reason"] = "goto_reached"
             event = None if s.reached_sent else "reached"
             s.reached_sent = True
             return "hold", None, event
         if s.reached_sent or s.nav_failed_sent:
+            if self.debug:
+                self.last_debug["reason"] = "goto_already_finished"
             return "hold", None, None
         s.reach_checks = 0
         path = self._plan(grid, robot_xy, goal_xy)
         if path is None:
             s.goto_failures += 1
+            if self.debug:
+                self.last_debug.update(reason="goto_path_failed", goto_failures=s.goto_failures)
             if s.goto_failures >= c.max_plan_failures:
                 s.nav_failed_sent = True
                 return "hold", None, "nav_failed"
             return "goto", None, None
         s.goto_failures = 0
+        if self.debug:
+            self.last_debug.update(reason="goto_path_valid", goto_failures=0)
         return "goto", path, None

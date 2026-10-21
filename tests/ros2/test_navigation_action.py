@@ -141,6 +141,35 @@ def test_missing_map_transform_does_not_send_mislabeled_goal(monkeypatch):
     assert bridge.client.sent == []
 
 
+def test_debug_identifies_replacement_and_timeout_cancel(monkeypatch):
+    monkeypatch.setattr(action_module, "ActionClient", FakeClient)
+    events = []
+    bridge = action_module.NavigationAction(
+        FakeNode(), None, name="/test", frame="odom_lidar",
+        debug=lambda event, **data: events.append({"event": event, **data}))
+    key = (1, 2, "frontier", 7)
+    bridge.update(source_goal(), key)
+    bridge.update(source_goal(), key)
+    first = FakeHandle()
+    bridge.client.sent[0][2].set_result(first)
+    moved = source_goal()
+    moved.pose.position.z = .3
+    bridge.update(moved, key)
+    desired = [e for e in events if e["event"] == "action_goal_desired"]
+    assert len(desired) == 2
+    assert desired[-1]["reasons"] == ["position_changed"]
+    assert desired[-1]["delta"]["distance_xy_m"] == 0
+    assert desired[-1]["delta"]["delta_z_m"] == .3
+    assert first.cancel_calls == 1
+    first.cancel.set_result(NS(goals_canceling=[1]))
+    second = FakeHandle()
+    bridge.client.sent[1][2].set_result(second)
+    bridge.update(None, key, clear_reason="worker_output_timeout")
+    assert any(e["event"] == "action_goal_cleared" and e["reason"] == "worker_output_timeout"
+               for e in events)
+    assert second.cancel_calls == 1
+
+
 def test_real_action_server_receives_one_goal(monkeypatch, tmp_path):
     monkeypatch.setenv("ROS_LOCALHOST_ONLY", "1")
     monkeypatch.setenv("ROS_LOG_DIR", str(tmp_path / "ros_logs"))

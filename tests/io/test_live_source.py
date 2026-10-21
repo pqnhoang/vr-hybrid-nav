@@ -23,8 +23,8 @@ def cloud(t):
               data=np.array([[1, 0, 1]], np.float32).tobytes())
 
 
-def source():
-    s = LiveSource(load_bag_config(resolve("configs/bags/vr_h3_2_calib_1.yaml")))
+def source(**kwargs):
+    s = LiveSource(load_bag_config(resolve("configs/bags/vr_h3_2_calib_1.yaml")), **kwargs)
     s.camera_info(NS(k=[2., 0., 1., 0., 2., 1., 0., 0., 1.], d=[], width=2, height=2))
     return s
 
@@ -70,3 +70,21 @@ def test_latest_ready_image_and_bounded_buffers():
     s.image(image(1000.), 1000.)
     s.lidar(cloud(1000.))
     assert s.next_frame(lookup, 1006.) is None  # don't revive stale input
+
+
+def test_debug_records_pairing_and_missing_tf_without_changing_frames():
+    s = source(debug=True)
+    s.image(image(10.), 100.)
+    for t in (9.2, 9.8, 10.1):
+        s.lidar(cloud(t))
+    assert s.next_frame(lambda frame, t: None if frame == "camera" else lookup(frame, t), 100.4) is None
+    assert "TF" in s.debug_snapshot()["wait_reason"]
+    f = s.next_frame(lookup, 100.5)
+    info = s.debug_snapshot()
+    assert info["selected_scan_stamps"] == [9.2, 9.8]
+    assert info["future_scans_excluded"] == 1
+    assert abs(info["newest_scan_gap_s"] - .2) < 1e-6
+    assert [r["T_map_sensor"][0][3] for r in info["scan_transforms"]] == [9.2, 9.8]
+    assert info["counters"]["frames_emitted"] == 1
+    assert info["points_used"] == len(f.lidar_points_map) == 2
+    assert source().last_sync == {}

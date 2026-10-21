@@ -65,6 +65,33 @@ ros2 topic pub --once /task_instruction std_msgs/msg/String "{data: ''}"
 ```
 
 To run without opening RViz, add `rviz:=false`. This does not disable publishing the map/markers.
+
+To investigate changing goals or sensor/TF timing, add `debug:=true`:
+
+```bash
+PYTHONPATH=.:$PYTHONPATH ros2 launch vlnav_ros vlnav.launch.py \
+  debug:=true instruction:='Find a sofa'
+```
+
+Debug mode defaults to false. At startup, the node prints `Debug JSONL: <absolute path>`.
+Each launch creates a separate `run_dir/debug/navigation_<UTC timestamp>_<pid>.jsonl`
+(by default under `runs/ros2/debug/`). Records are flushed as they are written, including:
+
+- Resolved sensor, exploration, mapping and navigation settings.
+- Each worker cycle: image and selected LiDAR stamps, scan gaps, TF failures and transforms,
+  sensor counters, robot pose/age, perception counts and processing durations.
+- Selected goal ID/kind/pose, its position in the robot base frame and `behind_robot`, a bounded
+  path sample, ranked candidates, path checks, retention/switch reasons, and stuck/blacklist notes.
+- Each publication: output age and why a goal is active or withheld, including worker timeouts.
+- Action replacement reasons and position/orientation deltas, converted poses, send/cancel events,
+  responses, feedback and results correlated by action serial and worker cycle.
+
+The console shows navigation-state transitions and action replacement reasons. The JSONL contains
+the detailed evidence; return that file after the run. It contains metadata rather than image or
+point-cloud payloads. Timing/transform logs diagnose pairing and TF availability; visual alignment
+still requires camera/LiDAR recordings. Navigation and synchronization policies are unchanged.
+The direct node equivalent is `--ros-args -p debug:=true`.
+
 Direct entry, with all node parameters and ROS remapping available:
 
 ```bash

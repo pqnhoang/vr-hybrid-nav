@@ -1,11 +1,11 @@
 # NeSy exploration (TASK_nesy_exploration.md §11). [DESIGN] choices: docs/design_choices.md.
 select_rate_hz: 2.0
-angle_reference: robot          # robot (paper) | camera (multi-camera / yawed mount)
-max_camera_yaw_offset_deg: 2.0  # `robot` is rejected for a camera yawed more than this (AUDIT 2.1)
+angle_reference: robot # robot (paper) | camera (multi-camera / yawed mount)
+max_camera_yaw_offset_deg: 2.0 # `robot` is rejected for a camera yawed more than this (AUDIT 2.1)
 frontier:
-  sensor_range_m: 5.0           # R
-  outside_fov: ignore           # ignore (paper) | zero_score
-  initial_spin: false           # needs a controller (Habitat harness, E5): `true` is rejected for now
+  sensor_range_m: 5.0 # R
+  outside_fov: ignore # ignore (paper) | zero_score
+  initial_spin: false # needs a controller (Habitat harness, E5): `true` is rejected for now
   frontier_connectivity: 8
   min_cluster_cells: 5
   small_cluster_cells: 30
@@ -13,11 +13,11 @@ frontier:
   inherit_radius_m: 0.5
 vl:
   sigma_rad: 0.1
-  vl_update_mode: first          # first | max | conf_weighted
-  rescore_on_new_subtask: true   # false = strict paper behavior
+  vl_update_mode: first # first | max | conf_weighted
+  rescore_on_new_subtask: true # false = strict paper behavior
 instance:
-  tau_det: 0.3                   # YOLO-World scores are low; tune (AUDIT pitfall 12)
-  instance_score: vl_eq3         # vl_eq3 (paper: highest S_VL) | confidence
+  tau_det: 0.3 # YOLO-World scores are low; tune (AUDIT pitfall 12)
+  instance_score: vl_eq3 # vl_eq3 (paper: highest S_VL) | confidence
   inst_voxel_m: 0.4
   inst_standoff_min_m: 0.6
   inst_standoff_max_m: 1.2
@@ -25,30 +25,30 @@ instance:
 curiosity:
   unknown_bfs_radius_m: 2.5
   unknown_k: 4.0
-  dist_metric: euclidean         # euclidean | path
+  dist_metric: path # euclidean | path
 scoring:
-  form: additive_dist            # additive_dist | multiplicative_unknown (AUDIT 2.3)
+  form: additive_dist # additive_dist | multiplicative_unknown (AUDIT 2.3)
   w_dist: 1.0
-  w_vl: 3.0
-  room_bonus: {enabled: false, w_room: 0.2}
+  w_vl: 2.5
+  room_bonus: { enabled: false, w_room: 0.2 }
 selection:
   delta_reached_m: 0.8
-  switch_margin: 0.1
+  switch_margin: 0.2
   max_reach_checks: 10
   max_plan_failures: 3
   blacklist_s: 60
-  stuck_detection: true          # [DESIGN] off in bag shadow mode: the recorded robot does not follow our goals
+  stuck_detection: true # [DESIGN] off in bag shadow mode: the recorded robot does not follow our goals
   stuck_dist_m: 0.3
   stuck_window_s: 10
   replan_period_s: 2.0
   no_frontier_patience_s: 5.0
-  goto_reach_radius_m: 0.5
+  goto_reach_radius_m: 0.8
   goto_yaw_tol_rad: null
-ablation:                        # spec §11 switches (also CLI flags of the runners)
-  no_ibtp: false                 # instance pool disabled
-  no_curiosity: false            # frontiers: S_NeSy = w_vl * S_VL (w_dist = 0, S_unknown = 1)
-  nearest_frontier: false        # w_vl = 0 and no IBTP
-habitat:                         # used by the Habitat harness (E5, not built yet)
+ablation: # spec §11 switches (also CLI flags of the runners)
+  no_ibtp: false # instance pool disabled
+  no_curiosity: false # frontiers: S_NeSy = w_vl * S_VL (w_dist = 0, S_unknown = 1)
+  nearest_frontier: false # w_vl = 0 and no IBTP
+habitat: # used by the Habitat harness (E5, not built yet)
   scenes: hm3d_v0.2/val
   hfov_deg: 79
   cam_height_m: 0.88
@@ -57,11 +57,11 @@ habitat:                         # used by the Habitat harness (E5, not built ye
   max_steps: 500
   stop_score: 0.5
   stop_dist_m: 1.0
-viz:                             # top-down debug view (exploration/viz.py): video, key frames, Rerun
-  map_px: 900                    # map area of a rendered frame (square, letterboxed), + text panel
+viz: # top-down debug view (exploration/viz.py): video, key frames, Rerun
+  map_px: 900 # map area of a rendered frame (square, letterboxed), + text panel
   panel_px: 400
-  crop_margin_m: 2.0             # around the known (non-unknown) part of the grid
-  top_k_text: 8                  # frontier candidates listed with their score breakdown
-  label_top_k: 5                 # candidates numbered on the map
+  crop_margin_m: 2.0 # around the known (non-unknown) part of the grid
+  top_k_text: 8 # frontier candidates listed with their score breakdown
+  label_top_k: 5 # candidates numbered on the map
   video_fps: 4
-  keyframe_every: 20             # also write every N-th frame as PNG
+  keyframe_every: 20 # also write every N-th frame as PNG

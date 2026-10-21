@@ -1,0 +1,16 @@
+# Live equivalent of vr_h3_2_system.yaml. Task instructions arrive through ROS.
+memory:
+  rooms: {enabled: true}
+  checkpoints: {checkpoint_every_s: 10}
+  gating: {max_obs_range_m: 10.0}
+perception:
+  detector: {cache_dir: null}
+  vocabulary: {generic_vocab_file: configs/vocab/office.txt}
+  lifting: {max_depth_m: 10.0}
+planner:
+  blocking: false
+  explore_timeout_s: 60
+  goto_timeout_s: 40
+exploration:
+  selection: {stuck_detection: true}
+  frontier: {min_cluster_cells: 10}
