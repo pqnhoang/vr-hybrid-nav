@@ -13,7 +13,8 @@ class StraightPlanner:
 
 @pytest.mark.parametrize("debug", [False, True])
 def test_debug_explains_switches_without_changing_selection(debug):
-    selector = GoalSelector(load_exploration_config().selection, StraightPlanner())
+    config = load_exploration_config(overrides={"selection": {"min_goal_hold_s": 0.0}})
+    selector = GoalSelector(config.selection, StraightPlanner())
     selector.debug = debug
     grid = SimpleNamespace(version=1)
     a = Candidate("frontier", 1, .5, [(1., 0.)])

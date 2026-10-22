@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from vlnav.common.config import CONFIG_DIR, deep_merge, load_yaml
 
@@ -55,11 +55,14 @@ class ScoringCfg(_Cfg):
     w_dist: float
     w_vl: float
     room_bonus: RoomBonusCfg
+    w_yaw: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+    yaw_change_window_s: float = Field(default=8.0, gt=0, allow_inf_nan=False)
 
 
 class SelectionCfg(_Cfg):
     delta_reached_m: float
     switch_margin: float
+    min_goal_hold_s: float = Field(default=0.0, ge=0, allow_inf_nan=False)
     max_reach_checks: int
     max_plan_failures: int
     blacklist_s: float

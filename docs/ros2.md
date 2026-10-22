@@ -136,6 +136,33 @@ centroid and points the goal heading toward the object. The saved best-view came
 evidence for object verification; it is not sent as the live navigation goal. If the map has
 no reachable approach cell yet, `goal_active` stays false while mapping continues.
 
+Exploration goals use `exploration.selection.min_goal_hold_s` (8 s by default) to commit to a
+position and final yaw. During this interval, higher-scoring candidates, including unverified
+object instances, wait. Re-clustering may move or remove a frontier representative without moving
+the saved destination. Map updates still recheck the path; arrival, an occupied/unknown destination,
+an unreachable path, blacklisting, stuck detection, or a new subtask can release the goal immediately.
+After the interval, a missing frontier is released; an existing candidate keeps its pinned pose
+until a challenger wins or the goal is released. Verified-target `goto` subtasks retain their
+existing object-facing approach behavior.
+
+The selector subtracts a yaw-change penalty from frontier and instance scores:
+
+```text
+penalty = w_yaw * abs(wrap(candidate_yaw - previous_goal_yaw)) / pi
+          * yaw_change_window_s / max(yaw_change_window_s, goal_age_s)
+```
+
+The time factor is 1 during the window (including age zero); afterwards it fades, allowing a
+necessary reversal. Before the first goal, the measured robot yaw is the reference.
+`exploration.scoring.w_yaw` defaults to 0.3 (the maximum penalty for a 180-degree change), and
+`yaw_change_window_s` defaults to 8 s. This is a soft preference, not an angular velocity limit.
+Debug selections and frontier score breakdowns include `yaw_penalty`; the selector also reports
+`goal_age_s`, `commitment_remaining_s`, and `goal_commitment` as a retention reason.
+Stuck history restarts when the physical position or final yaw changes, rather than on path
+refreshes or frontier identity changes alone. Set `min_goal_hold_s: 0` to disable pose pinning and
+commitment, and `w_yaw: 0` to disable the penalty. Put overrides under `exploration:` in the chosen
+run YAML and restart the node; the editable core installation does not require a ROS rebuild.
+
 | Topic | Type | Contents |
 |---|---|---|
 | `/exploration/goal` | `geometry_msgs/msg/PoseStamped` | Selected robot goal `(x, y, z)` + quaternion |

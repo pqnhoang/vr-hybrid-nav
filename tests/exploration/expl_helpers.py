@@ -6,6 +6,7 @@ import math
 import numpy as np
 
 from vlnav.common.models import Detection2D, Frame, FrameResult, Observation, Pose, Subtask
+from vlnav.common.config import deep_merge
 from vlnav.exploration.config import load_exploration_config
 from vlnav.mapping.config import load_mapping_config
 from vlnav.mapping.occupancy import FREE, OCCUPIED, UNKNOWN, OccupancyGrid2D, UpdateInfo
@@ -19,7 +20,9 @@ RES = 0.1
 
 
 def cfg(**over):
-    return load_exploration_config(overrides=over)
+    # Equation and legacy policy tests explicitly disable optional goal stabilization.
+    return load_exploration_config(overrides=deep_merge(
+        {"selection": {"min_goal_hold_s": 0.0}, "scoring": {"w_yaw": 0.0}}, over))
 
 
 def planner(**over):

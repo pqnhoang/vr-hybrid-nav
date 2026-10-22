@@ -28,18 +28,21 @@ curiosity:
   dist_metric: path # euclidean | path
 scoring:
   form: additive_dist # additive_dist | multiplicative_unknown (AUDIT 2.3)
-  w_dist: 1.0
-  w_vl: 2.5
+  w_dist: 1.5
+  w_vl: 2.0
+  w_yaw: 1.5 # maximum score penalty for a 180-degree change from the last committed goal yaw
+  yaw_change_window_s: 8.0 # full penalty within this window, then fades as window / goal age
   room_bonus: { enabled: false, w_room: 0.2 }
 selection:
   delta_reached_m: 0.8
   switch_margin: 0.2
+  min_goal_hold_s: 8.0 # pin exploration goal position/yaw; 0 disables commitment and pinning
   max_reach_checks: 10
   max_plan_failures: 3
   blacklist_s: 60
   stuck_detection: true # [DESIGN] off in bag shadow mode: the recorded robot does not follow our goals
   stuck_dist_m: 0.3
-  stuck_window_s: 10
+  stuck_window_s: 20
   replan_period_s: 2.0
   no_frontier_patience_s: 5.0
   goto_reach_radius_m: 0.8
