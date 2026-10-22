@@ -1,0 +1,6 @@
+export CYCLONEDDS_URI="file://$PWD/cyclonedds.xml"
+
+source /opt/ros/humble/setup.zsh
+source install/setup.zsh
+PYTHONPATH="$PWD:${PYTHONPATH:-}" ros2 launch vlnav_ros vlnav.launch.py \
+  use_sim_time:=false debug:=true max_frame_age_s:=30 max_pose_age_s:=30 rviz:=true save_map_images:=false instruction:='Find a potted plant, then go forward to find a sofa'

@@ -27,7 +27,7 @@ from vlnav.exploration.goal_selector import Candidate, Choice, GoalSelector
 from vlnav.exploration.instances import InstancePool, approach_cells
 from vlnav.exploration.scoring import FrontierScore, s_nesy
 from vlnav.exploration.vl_score import Mixture, assign, mixture, reference_pose, s_vl
-from vlnav.mapping.occupancy import OCCUPIED, OccupancyGrid2D, UpdateInfo
+from vlnav.mapping.occupancy import FREE, OCCUPIED, OccupancyGrid2D, UpdateInfo
 from vlnav.navigation.path_planner import PathPlanner
 
 RoomLabelsNear = Callable[[tuple[float, float]], set[str]]     # labels of the room at xy + neighbors
@@ -56,7 +56,7 @@ class ExplorationCore:
         self.room_labels_near = room_labels_near
         self.frontiers = FrontierMap(cfg.frontier)
         self.instances = InstancePool(cfg.instance)
-        self.selector = GoalSelector(cfg.selection, planner)
+        self.selector = GoalSelector(cfg.selection, planner, cfg.scoring)
         self.unknown = UnknownRatioCache(cfg.curiosity.unknown_bfs_radius_m, self.frontiers.structure)
         self.subtask: Subtask | None = None
         self.goto_object_xy: tuple[float, float] | None = None
@@ -147,18 +147,22 @@ class ExplorationCore:
         use_room = sc.room_bonus.enabled and hint and self.room_labels_near is not None
         path_metric = cfg.curiosity.dist_metric == "path" and hasattr(self.planner, "cost_to")
         out = []
+        cur = self.selector.s.current
+        pinned = (cfg.selection.min_goal_hold_s > 0 and cur is not None and cur.cand.kind == "frontier" and
+                  self.grid.value(self.grid.world_to_cell(np.asarray(cur.goal_xy)))[0] == FREE)
         for p in self.frontiers.points.values():
-            d = math.dist(robot_xy, p.xy)
+            xy = cur.goal_xy if pinned and cur.cand.id == p.id else p.xy
+            d = math.dist(robot_xy, xy)
             if d <= cfg.selection.delta_reached_m or p.blacklisted_until > t:
                 continue
             if path_metric:
-                d = self.planner.cost_to(self.grid, robot_xy, p.xy)
+                d = self.planner.cost_to(self.grid, robot_xy, xy)
             sd = s_dist(d) if math.isfinite(d) else 0.0
             vl = p.s_vl if p.s_vl_subtask_id == sid else 0.0
-            su = s_unknown(self.unknown.get(self.grid, p.id, p.xy), cfg.curiosity.unknown_k) \
+            su = s_unknown(self.unknown.get(self.grid, p.id, xy), cfg.curiosity.unknown_k) \
                 if cfg.curiosity_enabled else 1.0
-            rb = sc.room_bonus.w_room if use_room and hint in self.room_labels_near(p.xy) else 0.0
-            out.append(FrontierScore(p.id, p.xy, d, sd, vl, su, rb,
+            rb = sc.room_bonus.w_room if use_room and hint in self.room_labels_near(xy) else 0.0
+            out.append(FrontierScore(p.id, xy, d, sd, vl, su, rb,
                                      s_nesy(sd, vl, su, cfg.w_dist, cfg.w_vl, sc.form) + rb))
         self.unknown.prune(set(self.frontiers.points))
         out.sort(key=lambda f: (-f.s_nesy, f.id))
@@ -196,6 +200,8 @@ class ExplorationCore:
     def step(self, robot_pose: Pose, t: float) -> ExplorationOutput:
         t0 = time.perf_counter()
         self._notes = []
+        if self.selector.debug:
+            self.selector.last_debug = {"mode": "hold", "reason": "no_subtask_stop_or_empty_grid"}
         cfg = self.cfg
         x, y, z = robot_pose.position
         robot_xy, yaw = (x, y), robot_pose.yaw()
@@ -217,6 +223,9 @@ class ExplorationCore:
                                       self.goto_object_xy[0] - approach[0])
                     gp = _pose(approach, z, face, t)
             if gp is None:
+                if self.selector.debug:
+                    self.selector.last_debug = {"mode": "goto", "reason": "no_reachable_object_approach",
+                                                "object_xy": self.goto_object_xy}
                 out = ExplorationOutput(goal=None, goal_kind="hold", goal_id=st.node_id, path=None, events=[])
             else:
                 kind, path, ev = self.selector.goto(self.grid, robot_xy, yaw, t, gp.position[:2], gp.yaw())
@@ -260,6 +269,19 @@ class ExplorationCore:
             self._blacklist_current(t, "stuck")
         blocked = self.grid.inflated(self.robot_radius_m) if self.robot_radius_m > 0 else \
             self.grid.as_array() == OCCUPIED
+        cur = self.selector.s.current
+        current_valid = True
+        if cur is not None:
+            if cur.cand.kind == "frontier":
+                point = self.frontiers.points.get(cur.cand.id)
+                current_valid = point is None or point.blacklisted_until <= t
+            else:
+                point = self.instances.points.get(cur.cand.id)
+                current_valid = point is not None and point.status == "active"
+            if cfg.selection.min_goal_hold_s > 0:
+                # A successful snapped path alone must not retain a newly occupied destination.
+                cell = self.grid.world_to_cell(np.asarray(cur.goal_xy))
+                current_valid = current_valid and self.grid.value(cell)[0] == FREE
         inst = []
         if cfg.ibtp_enabled:
             active = [p for p in self.instances.points.values()
@@ -274,7 +296,12 @@ class ExplorationCore:
                 inst.append(Candidate("instance", p.id, p.rank, [(float(a), float(b)) for a, b in opts[:1]], p.xy))
         self._scores = self._frontier_scores(robot_xy, t, st.id)
         front = [Candidate("frontier", f.id, f.s_nesy, [f.xy]) for f in self._scores]
-        choice = self.selector.explore(self.grid, robot_xy, t, inst, front, self._on_result(t))
+        choice = self.selector.explore(self.grid, robot_xy, t, inst, front, self._on_result(t),
+                                       robot_yaw=self._robot[2], current_valid=current_valid)
+        self._scores = [f for f in self._scores if f.id in self.selector.frontier_scores]
+        for f in self._scores:
+            f.s_nesy, f.yaw_penalty = self.selector.frontier_scores[f.id]
+        self._scores.sort(key=lambda f: (-f.s_nesy, f.id))
         events = []
         if self.selector.hold_timeout(t, choice is None):
             events.append(self._event("no_frontier", t, frontier_points=len(self.frontiers.points),
@@ -285,10 +312,7 @@ class ExplorationCore:
         c = choice.cand
         if c.kind == "instance":
             self.instances.points[c.id].approach_xy = choice.goal_xy
-            yaw = math.atan2(c.face_xy[1] - choice.goal_xy[1], c.face_xy[0] - choice.goal_xy[0])
-        else:
-            yaw = math.atan2(choice.goal_xy[1] - robot_xy[1], choice.goal_xy[0] - robot_xy[0])
-        return ExplorationOutput(goal=_pose(choice.goal_xy, z, yaw, t), goal_kind=c.kind, goal_id=c.id,
+        return ExplorationOutput(goal=_pose(choice.goal_xy, z, choice.goal_yaw, t), goal_kind=c.kind, goal_id=c.id,
                                  path=choice.path, events=events)
 
     # -------------------------------------------------------------------------- snapshot
@@ -309,7 +333,8 @@ class ExplorationCore:
                         "blacklisted": p.blacklisted_until > (self._t_step or 0.0),
                         "score": None if f is None else {"s_nesy": f.s_nesy, "s_dist": f.s_dist, "dist": f.dist,
                                                          "s_vl": f.s_vl, "s_unknown": f.s_unknown,
-                                                         "room_bonus": f.room_bonus}})
+                                                         "room_bonus": f.room_bonus,
+                                                         "yaw_penalty": f.yaw_penalty}})
         return {
             "t": self._t_step, "frame_t": self._t_frame,
             "subtask": None if st is None else {"id": st.id, "task_id": st.task_id, "type": st.type,
@@ -331,7 +356,8 @@ class ExplorationCore:
             "goal_kind": None if out is None else out.goal_kind,
             "goal": None if out is None or out.goal is None else
             {"kind": out.goal_kind, "id": out.goal_id, "xy": tuple(out.goal.position[:2]),
-             "score": cur.cand.score if cur else None, "face_xy": cur.cand.face_xy if cur else None},
+             "score": cur.cand.score if cur else None, "face_xy": cur.cand.face_xy if cur else None,
+             "yaw_penalty": cur.cand.yaw_penalty if cur else None},
             "path": None if out is None else out.path,
             "events": [] if out is None else [{"type": e.type, "stamp": e.stamp, "payload": e.payload}
                                               for e in out.events],

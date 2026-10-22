@@ -47,7 +47,8 @@ def test_sensors_to_goal_map_and_cancel_over_ros(tmp_path, monkeypatch, use_sim_
             Parameter("instruction", value="Find a sofa"),
             Parameter("sensor_config", value=""),
             Parameter("run_config", value=""),
-            Parameter("run_dir", value=""),
+            Parameter("run_dir", value=str(tmp_path / "run") if use_sim_time else ""),
+            Parameter("debug", value=use_sim_time),
             Parameter("use_sim_time", value=use_sim_time),
             Parameter("max_pose_age_s", value=0.5),
             Parameter("save_map_images", value=use_sim_time),
@@ -196,6 +197,17 @@ def test_sensors_to_goal_map_and_cancel_over_ros(tmp_path, monkeypatch, use_sim_
         # Cancelling a task clears its selected goal; computed map frontiers remain visible.
         assert any(m.points for m in received["frontiers"][-1].markers)
         assert any(m.text == "ROBOT" for m in received["robot"][-1].markers)
+        if use_sim_time:
+            rows = [json.loads(line) for line in node.debug_recorder.path.read_text().splitlines()]
+            assert rows[0]["event"] == "session_start"
+            cycles = [r for r in rows if r["event"] == "pipeline" and r["frame_valid"]]
+            assert cycles and cycles[-1]["sync"]["scans_used"] > 0
+            assert any(r["goal_geometry"] is not None for r in cycles)
+            assert any(r["event"] == "navigation_publish" and r["reason"] == "robot_pose_unavailable"
+                       for r in rows)
+            assert not any(r["event"] == "diagnostic_error" for r in rows)
+        else:
+            assert node.debug_recorder is None
     finally:
         if node is not None:
             node.stop()

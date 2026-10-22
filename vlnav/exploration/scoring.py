@@ -3,7 +3,8 @@
     additive_dist (default):  S = w_dist·S_dist + w_VL·(S_VL·S_unknown)
     multiplicative_unknown:   S = (w_dist·S_dist + w_VL·S_VL)·S_unknown
 
-With no relevant detections (all S_VL = 0) the default form is exactly nearest-frontier.
+The selector subtracts a configurable goal-yaw-change penalty from these base scores.
+With no relevant detections and no yaw penalty, the default form is nearest-frontier.
 `room_bonus` (off by default, ablation): + w_room for frontiers in / next to a room labeled
 `Subtask.room_hint`, via a callable injected by runtime/ (exploration never imports memory).
 """
@@ -22,6 +23,7 @@ class FrontierScore:
     s_unknown: float
     room_bonus: float
     s_nesy: float
+    yaw_penalty: float = 0.0
 
 
 def s_nesy(s_dist: float, s_vl: float, s_unknown: float, w_dist: float, w_vl: float, form: str) -> float:

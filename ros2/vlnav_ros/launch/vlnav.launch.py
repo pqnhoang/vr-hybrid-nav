@@ -11,6 +11,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 def generate_launch_description():
     defaults = {
         "instruction": "",
+        "debug": "false",
         "nav_action_enabled": "true",
         "nav_action_name": "vr_navigate_to_pose",
         "nav_action_frame": "map",
@@ -34,6 +35,7 @@ def generate_launch_description():
                         "nav_waypoint_name", "nav_behavior_tree", "sensor_config",
                         "run_config", "run_dir", "map_image_dir")}
     params["use_sim_time"] = ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool)
+    params["debug"] = ParameterValue(LaunchConfiguration("debug"), value_type=bool)
     params["max_frame_age_s"] = ParameterValue(LaunchConfiguration("max_frame_age_s"), value_type=float)
     params["max_pose_age_s"] = ParameterValue(LaunchConfiguration("max_pose_age_s"), value_type=float)
     params["nav_action_enabled"] = ParameterValue(LaunchConfiguration("nav_action_enabled"), value_type=bool)

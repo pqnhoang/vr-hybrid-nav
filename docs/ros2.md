@@ -65,6 +65,33 @@ ros2 topic pub --once /task_instruction std_msgs/msg/String "{data: ''}"
 ```
 
 To run without opening RViz, add `rviz:=false`. This does not disable publishing the map/markers.
+
+To investigate changing goals or sensor/TF timing, add `debug:=true`:
+
+```bash
+PYTHONPATH=.:$PYTHONPATH ros2 launch vlnav_ros vlnav.launch.py \
+  debug:=true instruction:='Find a sofa'
+```
+
+Debug mode defaults to false. At startup, the node prints `Debug JSONL: <absolute path>`.
+Each launch creates a separate `run_dir/debug/navigation_<UTC timestamp>_<pid>.jsonl`
+(by default under `runs/ros2/debug/`). Records are flushed as they are written, including:
+
+- Resolved sensor, exploration, mapping and navigation settings.
+- Each worker cycle: image and selected LiDAR stamps, scan gaps, TF failures and transforms,
+  sensor counters, robot pose/age, perception counts and processing durations.
+- Selected goal ID/kind/pose, its position in the robot base frame and `behind_robot`, a bounded
+  path sample, ranked candidates, path checks, retention/switch reasons, and stuck/blacklist notes.
+- Each publication: output age and why a goal is active or withheld, including worker timeouts.
+- Action replacement reasons and position/orientation deltas, converted poses, send/cancel events,
+  responses, feedback and results correlated by action serial and worker cycle.
+
+The console shows navigation-state transitions and action replacement reasons. The JSONL contains
+the detailed evidence; return that file after the run. It contains metadata rather than image or
+point-cloud payloads. Timing/transform logs diagnose pairing and TF availability; visual alignment
+still requires camera/LiDAR recordings. Navigation and synchronization policies are unchanged.
+The direct node equivalent is `--ros-args -p debug:=true`.
+
 Direct entry, with all node parameters and ROS remapping available:
 
 ```bash
@@ -108,6 +135,33 @@ For a selected object, the live node chooses a reachable free map cell 0.6–1.2
 centroid and points the goal heading toward the object. The saved best-view camera pose remains
 evidence for object verification; it is not sent as the live navigation goal. If the map has
 no reachable approach cell yet, `goal_active` stays false while mapping continues.
+
+Exploration goals use `exploration.selection.min_goal_hold_s` (8 s by default) to commit to a
+position and final yaw. During this interval, higher-scoring candidates, including unverified
+object instances, wait. Re-clustering may move or remove a frontier representative without moving
+the saved destination. Map updates still recheck the path; arrival, an occupied/unknown destination,
+an unreachable path, blacklisting, stuck detection, or a new subtask can release the goal immediately.
+After the interval, a missing frontier is released; an existing candidate keeps its pinned pose
+until a challenger wins or the goal is released. Verified-target `goto` subtasks retain their
+existing object-facing approach behavior.
+
+The selector subtracts a yaw-change penalty from frontier and instance scores:
+
+```text
+penalty = w_yaw * abs(wrap(candidate_yaw - previous_goal_yaw)) / pi
+          * yaw_change_window_s / max(yaw_change_window_s, goal_age_s)
+```
+
+The time factor is 1 during the window (including age zero); afterwards it fades, allowing a
+necessary reversal. Before the first goal, the measured robot yaw is the reference.
+`exploration.scoring.w_yaw` defaults to 0.3 (the maximum penalty for a 180-degree change), and
+`yaw_change_window_s` defaults to 8 s. This is a soft preference, not an angular velocity limit.
+Debug selections and frontier score breakdowns include `yaw_penalty`; the selector also reports
+`goal_age_s`, `commitment_remaining_s`, and `goal_commitment` as a retention reason.
+Stuck history restarts when the physical position or final yaw changes, rather than on path
+refreshes or frontier identity changes alone. Set `min_goal_hold_s: 0` to disable pose pinning and
+commitment, and `w_yaw: 0` to disable the penalty. Put overrides under `exploration:` in the chosen
+run YAML and restart the node; the editable core installation does not require a ROS rebuild.
 
 | Topic | Type | Contents |
 |---|---|---|

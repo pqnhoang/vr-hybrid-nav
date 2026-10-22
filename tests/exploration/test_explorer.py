@@ -156,7 +156,7 @@ def test_ablations_and_room_bonus():
     core = core_for(gap_grid(), ablation={"no_curiosity": True})
     tick(core, 4.6, 2.0, 0.0, dets=[det("sofa", 0.9, 80)], obs=[None])
     for p in core.snapshot()["points"]:
-        assert math.isclose(p["score"]["s_nesy"], 3.0 * p["s_vl"]) and p["score"]["s_unknown"] == 1.0
+        assert math.isclose(p["score"]["s_nesy"], core.cfg.w_vl * p["s_vl"]) and p["score"]["s_unknown"] == 1.0
     g = gap_grid()
     core = ExplorationCore(cfg(**ZERO, scoring={"room_bonus": {"enabled": True, "w_room": 0.2}}), g, planner(),
                            room_labels_near=lambda xy: {"office"} if xy[0] > 5 else {"kitchen"})

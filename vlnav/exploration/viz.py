@@ -276,14 +276,15 @@ def render_panel(snap: dict, cfg: ExplorationVizCfg, height: int, t0: float | No
                          zip(mix["labels"], mix["alpha"], mix["mu"])) or "none"
         line(f"VL dets (label conf@bearing): {dets}")
     y[0] += 4
-    line("frontier candidates (S = w_d*S_d + w_vl*S_vl*S_unk)", bold=True)
-    line(" #   id   S_NeSy  S_dist  S_VL  S_unk   d[m]", color=(90, 90, 90))
+    line("frontier candidates (configured score - yaw penalty)", bold=True)
+    line(" #   id   Score  S_dist  S_VL  S_unk  P_yaw", color=(90, 90, 90))
     goal = snap.get("goal")
     for i, p in enumerate(frontier_order(snap)[:cfg.top_k_text]):
         s = p["score"]
         mark = "*" if goal and goal["kind"] == "frontier" and goal["id"] == p["id"] else " "
         line(f"{mark}{i + 1:<2} {p['id']:>4}  {s['s_nesy']:6.3f}  {s['s_dist']:5.2f}  {s['s_vl']:5.2f} "
-             f"{s['s_unknown']:5.2f} {s['dist']:6.1f}", color=C_GOAL if mark == "*" else (20, 20, 20))
+             f"{s['s_unknown']:5.2f} {s.get('yaw_penalty', 0.0):5.2f}",
+             color=C_GOAL if mark == "*" else (20, 20, 20))
     if inst:
         y[0] += 4
         line("instances (rank = S_VL at own bearing)", bold=True)

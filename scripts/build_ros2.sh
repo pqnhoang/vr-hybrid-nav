@@ -4,6 +4,9 @@ set -euo pipefail
 
 vlnav_repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 vlnav_python="${1:-${VLNAV_PYTHON:-python3}}"
+# CMake treats bare/relative interpreter names as paths inside each build directory.
+# Resolve before sourcing ROS or changing directory, preserving virtual environments.
+vlnav_python="$("$vlnav_python" -c 'import os, sys; print(os.path.abspath(sys.executable))')"
 vlnav_ros_distro="${ROS_DISTRO:-humble}"
 set +u  # ROS environment scripts reference optional unset variables.
 source "/opt/ros/${vlnav_ros_distro}/setup.bash"

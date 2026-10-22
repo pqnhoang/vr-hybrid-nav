@@ -1,0 +1,18 @@
+# Live equivalent of vr_h3_2_system.yaml. Task instructions arrive through ROS.
+memory:
+  rooms: {enabled: true}
+  checkpoints: {checkpoint_every_s: 10}
+  gating: {max_obs_range_m: 10.0}
+perception:
+  detector: {cache_dir: null}
+  vocabulary: {generic_vocab_file: configs/vocab/office.txt}
+  lifting: {max_depth_m: 10.0}
+planner:
+  blocking: false
+  explore_timeout_s: 180          # real robot: 60 s ended explores too early
+  goto_timeout_s: 120
+exploration:
+  selection: {stuck_detection: true}
+  # fewer frontier points (about half on the vr_h3_2 maps): drop clusters under 0.75 m, one point
+  # for clusters up to 3 m, then one per 3 m
+  frontier: {min_cluster_cells: 15, small_cluster_cells: 60, sample_spacing_m: 3.0}
